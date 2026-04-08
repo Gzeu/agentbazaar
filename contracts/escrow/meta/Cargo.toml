@@ -1,0 +1,8 @@
+[package]
+name = "escrow-meta"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+multiversx-sc-meta = "0.53"
+escrow = { path = ".." }

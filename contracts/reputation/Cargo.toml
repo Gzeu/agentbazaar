@@ -1,0 +1,17 @@
+[package]
+name = "reputation"
+version = "0.1.0"
+edition = "2021"
+
+[lib]
+name = "reputation"
+path = "src/lib.rs"
+
+[dependencies]
+multiversx-sc = "0.53"
+
+[dev-dependencies]
+multiversx-sc-scenario = "0.53"
+
+[workspace]
+members = [".", "meta"]
