@@ -1,0 +1,20 @@
+{
+  "configurations": {
+    "default": {
+      "proxy": "https://devnet-gateway.multiversx.com",
+      "chainID": "D"
+    }
+  },
+  "contract": {
+    "build": {
+      "outputDirectory": "./output",
+      "ignoreWarnings": false
+    },
+    "deploy": {
+      "outfile": "./deploy-output.json",
+      "sendTxMethod": "auto",
+      "wait-result": true,
+      "timeout": 300
+    }
+  }
+}

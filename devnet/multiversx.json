@@ -1,0 +1,22 @@
+{
+  "network": "devnet",
+  "chainID": "D",
+  "proxy": "https://devnet-gateway.multiversx.com",
+  "explorer": "https://devnet-explorer.multiversx.com",
+  "api": "https://devnet-api.multiversx.com",
+  "gasPrice": 1000000000,
+  "gasLimit": {
+    "registry": 80000000,
+    "escrow": 100000000,
+    "reputation": 80000000
+  },
+  "contracts": {
+    "registry": "",
+    "escrow": "",
+    "reputation": ""
+  },
+  "minStakeEgld": "0.05",
+  "marketplaceFeeBps": 100,
+  "disputeWindowSeconds": 3600,
+  "taskTimeoutSeconds": 300
+}

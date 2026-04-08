@@ -1,0 +1,29 @@
+{
+  "name": "@agentbazaar/sdk",
+  "version": "0.1.0-devnet",
+  "description": "AgentBazaar SDK — Provider & Consumer agent integration for MultiversX devnet",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "scripts": {
+    "build": "tsc",
+    "dev": "tsc --watch",
+    "test": "jest",
+    "prepublishOnly": "npm run build"
+  },
+  "dependencies": {
+    "@multiversx/sdk-core": "^13.5.0",
+    "@multiversx/sdk-network-providers": "^2.4.0"
+  },
+  "devDependencies": {
+    "typescript": "^5.4.0",
+    "@types/node": "^20.0.0",
+    "jest": "^29.7.0",
+    "ts-jest": "^29.1.0"
+  },
+  "keywords": ["multiversx", "agentbazaar", "ai-agents", "devnet", "sdk", "marketplace"],
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/Gzeu/agentbazaar"
+  }
+}
