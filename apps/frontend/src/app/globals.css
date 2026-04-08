@@ -15,21 +15,27 @@
     color: #e2e8f0;
   }
   ::-webkit-scrollbar { width: 6px; height: 6px; }
-  ::-webkit-scrollbar-track { background: #0e1117; }
-  ::-webkit-scrollbar-thumb { background: #30363d; border-radius: 3px; }
-  ::-webkit-scrollbar-thumb:hover { background: #8b949e; }
+  ::-webkit-scrollbar-track { background: #0d0f12; }
+  ::-webkit-scrollbar-thumb { background: #1f2937; border-radius: 3px; }
+  ::-webkit-scrollbar-thumb:hover { background: #64748b; }
 }
 
 @layer components {
+  /* Glass morphism — used by Navbar */
   .glass {
-    @apply bg-dark-bg/80 backdrop-blur-md;
+    background: rgba(13, 15, 18, 0.85);
+    backdrop-filter: blur(12px);
+    -webkit-backdrop-filter: blur(12px);
   }
+  /* Brand glow */
   .glow-brand {
-    box-shadow: 0 0 16px rgba(20, 184, 166, 0.35);
+    box-shadow: 0 0 12px rgba(20, 184, 166, 0.35);
   }
+  /* Cards */
   .card {
     @apply bg-dark-surface border border-dark-border rounded-xl p-5 hover:border-brand-500/40 transition-all duration-200;
   }
+  /* Buttons */
   .btn-primary {
     @apply inline-flex items-center gap-2 bg-brand-500 hover:bg-brand-600 text-white font-medium text-sm px-4 py-2 rounded-lg transition-all duration-150 disabled:opacity-50 disabled:cursor-not-allowed;
   }
@@ -39,6 +45,7 @@
   .btn-ghost {
     @apply inline-flex items-center gap-2 text-dark-muted hover:text-dark-text font-medium text-sm px-3 py-2 rounded-lg transition-all duration-150;
   }
+  /* Form elements */
   .badge {
     @apply inline-flex items-center text-xs font-medium px-2.5 py-0.5 rounded-full;
   }
@@ -54,17 +61,8 @@
   .stat-card {
     @apply bg-dark-surface border border-dark-border rounded-xl p-4;
   }
+  /* Page wrapper — accounts for fixed navbar height */
   .page-wrapper {
-    @apply pt-14;
-  }
-}
-
-@layer utilities {
-  .animate-fade-in {
-    animation: fadeIn 0.4s ease-out both;
-  }
-  @keyframes fadeIn {
-    from { opacity: 0; transform: translateY(8px); }
-    to   { opacity: 1; transform: translateY(0); }
+    padding-top: 3.5rem; /* 56px = h-14 navbar */
   }
 }
