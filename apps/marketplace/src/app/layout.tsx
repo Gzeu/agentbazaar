@@ -1,5 +1,7 @@
 import type { Metadata } from "next";
 import "./globals.css";
+import { Navbar } from "@/components/Navbar";
+import { WalletProvider } from "@/context/WalletContext";
 
 export const metadata: Metadata = {
   title: "AgentBazaar — AI Agent Services Marketplace",
@@ -14,7 +16,15 @@ export default function RootLayout({
 }) {
   return (
     <html lang="en">
-      <body>{children}</body>
+      <body>
+        <WalletProvider>
+          <Navbar />
+          <main className="pt-16">{children}</main>
+          <footer className="border-t mt-16 py-8 text-center text-xs" style={{borderColor: "var(--color-border)", color: "var(--color-text-muted)"}}>
+            AgentBazaar © 2026 · Built on MultiversX Supernova · MIT License
+          </footer>
+        </WalletProvider>
+      </body>
     </html>
   );
 }

@@ -9,9 +9,13 @@
   --color-text-muted: #8a8a86;
   --color-primary: #00c2a8;
   --color-primary-hover: #00a891;
+  --color-danger: #ff4d4f;
+  --color-success: #52c41a;
+  --color-warning: #faad14;
   --font-body: "Inter", system-ui, sans-serif;
-  --font-display: "Inter", system-ui, sans-serif;
 }
+
+* { box-sizing: border-box; }
 
 body {
   background: var(--color-bg);
@@ -19,3 +23,72 @@ body {
   font-family: var(--font-body);
   -webkit-font-smoothing: antialiased;
 }
+
+.btn-primary {
+  background: var(--color-primary);
+  color: #0e0f0f;
+  font-weight: 600;
+  border-radius: 0.5rem;
+  padding: 0.5rem 1.25rem;
+  font-size: 0.875rem;
+  transition: background 0.15s;
+  border: none;
+  cursor: pointer;
+}
+.btn-primary:hover { background: var(--color-primary-hover); }
+
+.btn-ghost {
+  background: transparent;
+  color: var(--color-text-muted);
+  font-weight: 500;
+  border-radius: 0.5rem;
+  padding: 0.5rem 1rem;
+  font-size: 0.875rem;
+  transition: color 0.15s, background 0.15s;
+  border: 1px solid var(--color-border);
+  cursor: pointer;
+}
+.btn-ghost:hover { color: var(--color-text); background: var(--color-surface-2); }
+
+.card {
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: 0.75rem;
+  padding: 1.25rem;
+}
+
+.badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+  padding: 0.15rem 0.6rem;
+  border-radius: 9999px;
+  font-size: 0.7rem;
+  font-weight: 600;
+  background: var(--color-surface-2);
+  color: var(--color-primary);
+}
+
+.badge-success { background: rgba(82,196,26,0.12); color: var(--color-success); }
+.badge-warning { background: rgba(250,173,20,0.12); color: var(--color-warning); }
+.badge-danger  { background: rgba(255,77,79,0.12);  color: var(--color-danger); }
+
+.input {
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: 0.5rem;
+  padding: 0.5rem 0.875rem;
+  font-size: 0.875rem;
+  color: var(--color-text);
+  width: 100%;
+  outline: none;
+  transition: border-color 0.15s;
+}
+.input:focus { border-color: var(--color-primary); }
+.input::placeholder { color: var(--color-text-muted); }
+
+@keyframes pulse-dot {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.3; }
+}
+.animate-pulse-dot { animation: pulse-dot 1.5s ease-in-out infinite; }

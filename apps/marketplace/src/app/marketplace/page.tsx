@@ -1,73 +1,98 @@
+"use client";
+import { useState } from "react";
+import { useServices } from "@/hooks/useAgentBazaar";
+import { useWallet } from "@/context/WalletContext";
+
+const CATEGORIES = ["All", "data", "compute", "orchestration", "compliance", "enrichment", "wallet-actions", "notifications"];
+
 export default function MarketplacePage() {
+  const [category, setCategory] = useState("All");
+  const [search, setSearch] = useState("");
+  const { services, loading } = useServices(category, search);
+  const { connected, connect } = useWallet();
+
   return (
-    <main className="min-h-screen px-6 py-12">
-      <div className="max-w-5xl mx-auto space-y-8">
-        <div className="space-y-2">
-          <h1 className="text-2xl font-bold" style={{color: "var(--color-text)"}}>
-            Agent Services
-          </h1>
-          <p className="text-sm" style={{color: "var(--color-text-muted)"}}>
-            Browse permissionless services offered by AI Agents on MultiversX Supernova.
-          </p>
+    <main className="min-h-screen px-6 py-10">
+      <div className="max-w-6xl mx-auto space-y-8">
+
+        {/* Header */}
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+          <div>
+            <h1 className="text-2xl font-bold" style={{ color: "var(--color-text)" }}>Agent Services</h1>
+            <p className="text-sm mt-1" style={{ color: "var(--color-text-muted)" }}>
+              Permissionless services offered by AI Agents on MultiversX Supernova
+            </p>
+          </div>
+          <input
+            className="input w-full sm:w-72"
+            placeholder="Search services, tags…"
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+          />
         </div>
 
-        {/* Filters */}
-        <div className="flex gap-3 flex-wrap">
-          {["All", "data", "compute", "action", "workflow", "inference"].map((cat) => (
+        {/* Category filters */}
+        <div className="flex gap-2 flex-wrap">
+          {CATEGORIES.map((cat) => (
             <button
               key={cat}
+              onClick={() => setCategory(cat)}
               className="px-3 py-1.5 rounded-lg text-xs font-medium border transition-colors"
-              style={{borderColor: "var(--color-border)", color: "var(--color-text-muted)"}}
+              style={{
+                borderColor: category === cat ? "var(--color-primary)" : "var(--color-border)",
+                color: category === cat ? "var(--color-primary)" : "var(--color-text-muted)",
+                background: category === cat ? "rgba(0,194,168,0.08)" : "transparent",
+              }}
             >
               {cat}
             </button>
           ))}
         </div>
 
-        {/* Services grid */}
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-          {DEMO_SERVICES.map((service) => (
-            <div
-              key={service.id}
-              className="rounded-xl p-5 space-y-3 border"
-              style={{background: "var(--color-surface)", borderColor: "var(--color-border)"}}
-            >
-              <div className="flex items-start justify-between">
-                <span className="text-xs px-2 py-0.5 rounded-full" style={{background: "var(--color-surface-2)", color: "var(--color-primary)"}}>
-                  {service.category}
-                </span>
-                <span className="text-xs" style={{color: "var(--color-text-muted)"}}>
-                  ⭐ {service.score}/100
-                </span>
+        {/* Grid */}
+        {loading ? (
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+            {Array.from({ length: 6 }).map((_, i) => (
+              <div key={i} className="card animate-pulse" style={{ height: 180, background: "var(--color-surface-2)" }} />
+            ))}
+          </div>
+        ) : services.length === 0 ? (
+          <div className="py-20 text-center" style={{ color: "var(--color-text-muted)" }}>No services found.</div>
+        ) : (
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+            {services.map((svc) => (
+              <div key={svc.serviceId} className="card flex flex-col gap-3 hover:border-[var(--color-primary)] transition-colors">
+                <div className="flex items-start justify-between">
+                  <span className="badge">{svc.category}</span>
+                  <span className="text-xs" style={{ color: "var(--color-text-muted)" }}>⭐ {svc.score}/100</span>
+                </div>
+                <div>
+                  <h3 className="font-semibold text-sm" style={{ color: "var(--color-text)" }}>{svc.name}</h3>
+                  <p className="text-xs mt-1" style={{ color: "var(--color-text-muted)" }}>{svc.description}</p>
+                </div>
+                <div className="flex flex-wrap gap-1">
+                  {svc.tags.map((t) => (
+                    <span key={t} className="text-xs px-1.5 py-0.5 rounded" style={{ background: "var(--color-surface-2)", color: "var(--color-text-muted)" }}>#{t}</span>
+                  ))}
+                </div>
+                <div className="mt-auto flex items-center justify-between pt-3 border-t" style={{ borderColor: "var(--color-border)" }}>
+                  <div>
+                    <div className="text-sm font-semibold" style={{ color: "var(--color-primary)" }}>{svc.price}</div>
+                    <div className="text-xs" style={{ color: "var(--color-text-muted)" }}>SLA {svc.slaMs}ms</div>
+                  </div>
+                  <button
+                    onClick={() => !connected && connect()}
+                    className="btn-primary"
+                    style={{ padding: "0.4rem 1rem", fontSize: "0.78rem" }}
+                  >
+                    {connected ? "Buy Task" : "Connect"}
+                  </button>
+                </div>
               </div>
-              <div>
-                <h3 className="font-semibold text-sm" style={{color: "var(--color-text)"}}>{service.name}</h3>
-                <p className="text-xs mt-1" style={{color: "var(--color-text-muted)"}}>{service.description}</p>
-              </div>
-              <div className="flex items-center justify-between pt-2 border-t" style={{borderColor: "var(--color-border)"}}>
-                <span className="text-xs font-medium" style={{color: "var(--color-primary)"}}>
-                  {service.price}
-                </span>
-                <button
-                  className="text-xs px-3 py-1.5 rounded-lg font-medium transition-colors"
-                  style={{background: "var(--color-primary)", color: "#0e0f0f"}}
-                >
-                  Buy Task
-                </button>
-              </div>
-            </div>
-          ))}
-        </div>
+            ))}
+          </div>
+        )}
       </div>
     </main>
   );
 }
-
-const DEMO_SERVICES = [
-  {id: "1", name: "DataFetch Pro", category: "data", description: "Real-time market data for any token pair. Sub-300ms SLA.", price: "0.001 EGLD", score: 97},
-  {id: "2", name: "Compute Offload", category: "compute", description: "Distributed compute for ML inference tasks.", price: "0.005 EGLD", score: 92},
-  {id: "3", name: "Workflow Orchestrator", category: "workflow", description: "Multi-agent workflow composition and execution.", price: "0.002 EGLD", score: 88},
-  {id: "4", name: "EGLD Price Oracle", category: "oracle", description: "Signed price feed for EGLD/USDC updated every 30s.", price: "0.0005 EGLD", score: 99},
-  {id: "5", name: "Compliance Checker", category: "compliance", description: "AML/KYT screening for wallet addresses.", price: "0.003 EGLD", score: 95},
-  {id: "6", name: "Semantic Enrichment", category: "inference", description: "Embeddings and semantic tagging for structured data.", price: "0.002 EGLD", score: 90},
-];
