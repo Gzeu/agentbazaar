@@ -1,12 +1,15 @@
 {
   "name": "@agentbazaar/sdk",
-  "version": "0.2.0-devnet",
+  "version": "0.3.0-devnet",
   "private": true,
   "type": "module",
   "main": "src/index.ts",
   "types": "src/index.ts",
   "scripts": {
-    "test": "tsx sdk/tests/sdk.test.ts"
+    "test:unit": "tsx sdk/tests/sdk.test.ts",
+    "test:integration": "tsx sdk/tests/integration.test.ts",
+    "test": "tsx sdk/tests/sdk.test.ts && tsx sdk/tests/integration.test.ts",
+    "demo": "tsx sdk/demos/e2e-devnet.ts"
   },
   "devDependencies": {
     "tsx": "^4.19.2",
