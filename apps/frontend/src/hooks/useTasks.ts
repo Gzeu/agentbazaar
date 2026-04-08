@@ -1,29 +1,21 @@
-import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { api } from '@/lib/api';
+import useSWR from 'swr';
+import { tasksApi } from '@/lib/api';
+import type { Task } from '@/lib/types';
 
-export function useTasks(address?: string) {
-  return useQuery({
-    queryKey: ['tasks', address],
-    queryFn: () =>
-      address
-        ? api.get(`/api/v1/tasks/consumer/${address}`).then((r) => r.data)
-        : api.get('/api/v1/tasks').then((r) => r.data),
-  });
+export function useTask(id: string) {
+  const { data, error, isLoading, mutate } = useSWR(
+    id ? `task-${id}` : null,
+    () => tasksApi.get(id),
+    { refreshInterval: 3000 }, // Poll every 3s for live status
+  );
+  return { task: data as Task | undefined, loading: isLoading, error, refresh: mutate };
 }
 
-export function useTask(taskId: string) {
-  return useQuery({
-    queryKey: ['task', taskId],
-    queryFn: () => api.get(`/api/v1/tasks/${taskId}`).then((r) => r.data),
-    enabled: !!taskId,
-    refetchInterval: (data: any) => data?.status === 'running' || data?.status === 'pending' ? 2000 : false,
-  });
-}
-
-export function useSubmitTask() {
-  const qc = useQueryClient();
-  return useMutation({
-    mutationFn: (data: unknown) => api.post('/api/v1/tasks', data).then((r) => r.data),
-    onSuccess: () => qc.invalidateQueries({ queryKey: ['tasks'] }),
-  });
+export function useTasksByConsumer(address: string) {
+  const { data, error, isLoading } = useSWR(
+    address ? `tasks-consumer-${address}` : null,
+    () => tasksApi.byConsumer(address),
+    { refreshInterval: 5000 },
+  );
+  return { tasks: (data || []) as Task[], loading: isLoading, error };
 }

@@ -1,25 +1,41 @@
-import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { api } from '@/lib/api';
+import useSWR from 'swr';
+import { servicesApi, discoveryApi } from '@/lib/api';
+import type { Service } from '@/lib/types';
 
-export function useServices(filters: Record<string, unknown> = {}) {
-  return useQuery({
-    queryKey: ['services', filters],
-    queryFn: () => api.get('/api/v1/services', { params: filters }).then((r) => r.data),
-  });
+export function useServices(filters?: Record<string, unknown>) {
+  const key = ['services', JSON.stringify(filters)];
+  const { data, error, isLoading, mutate } = useSWR(
+    key,
+    () => servicesApi.list(filters),
+    { refreshInterval: 10000 },
+  );
+
+  return {
+    services: (data?.data || []) as Service[],
+    total: data?.total || 0,
+    loading: isLoading,
+    error,
+    refresh: mutate,
+  };
 }
 
 export function useService(id: string) {
-  return useQuery({
-    queryKey: ['service', id],
-    queryFn: () => api.get(`/api/v1/services/${id}`).then((r) => r.data),
-    enabled: !!id,
-  });
+  const { data, error, isLoading } = useSWR(
+    id ? `service-${id}` : null,
+    () => servicesApi.get(id),
+  );
+  return { service: data as Service | undefined, loading: isLoading, error };
 }
 
-export function useRegisterService() {
-  const qc = useQueryClient();
-  return useMutation({
-    mutationFn: (data: unknown) => api.post('/api/v1/services/register', data).then((r) => r.data),
-    onSuccess: () => qc.invalidateQueries({ queryKey: ['services'] }),
-  });
+export function useDiscover(params: Record<string, unknown>) {
+  const { data, error, isLoading } = useSWR(
+    ['discover', JSON.stringify(params)],
+    () => discoveryApi.discover(params),
+    { refreshInterval: 15000 },
+  );
+  return {
+    services: (data?.services || []) as Service[],
+    loading: isLoading,
+    error,
+  };
 }
