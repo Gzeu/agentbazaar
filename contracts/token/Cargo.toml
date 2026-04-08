@@ -1,0 +1,15 @@
+[package]
+name = "agentbazaar-token"
+version = "0.1.0"
+authors = ["George Pricop"]
+edition = "2021"
+
+[lib]
+name = "agentbazaar_token"
+path = "src/lib.rs"
+
+[dependencies]
+multiversx-sc = "0.54.0"
+
+[dev-dependencies]
+multiversx-sc-scenario = "0.54.0"
