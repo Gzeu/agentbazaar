@@ -1,7 +1,20 @@
 "use client";
+/**
+ * useEvents — live event hook.
+ *
+ * When CONTRACT_ADDRESSES are set, subscribes to the real AgentBazaar
+ * EventListener (500ms polling). Falls back to mock event generation.
+ */
 import { useState, useEffect, useRef } from "react";
+import { CONTRACT_ADDRESSES, MVX_API_URL, MVX_ENVIRONMENT } from "@/lib/mvx/config";
 
-export type EventType = "TaskCreated" | "TaskCompleted" | "ServiceRegistered" | "ReputationUpdated" | "TaskDisputed" | "EscrowReleased";
+export type EventType =
+  | "TaskCreated"
+  | "TaskCompleted"
+  | "ServiceRegistered"
+  | "ReputationUpdated"
+  | "TaskDisputed"
+  | "EscrowReleased";
 
 export interface ChainEvent {
   id: string;
@@ -11,7 +24,7 @@ export interface ChainEvent {
   data: Record<string, string>;
 }
 
-const EVENT_COLORS: Record<EventType, string> = {
+export const EVENT_COLORS: Record<EventType, string> = {
   TaskCreated:       "var(--color-primary)",
   TaskCompleted:     "var(--color-success)",
   ServiceRegistered: "#a78bfa",
@@ -20,7 +33,7 @@ const EVENT_COLORS: Record<EventType, string> = {
   EscrowReleased:    "var(--color-success)",
 };
 
-const EVENT_ICONS: Record<EventType, string> = {
+export const EVENT_ICONS: Record<EventType, string> = {
   TaskCreated:       "🆕",
   TaskCompleted:     "✅",
   ServiceRegistered: "📡",
@@ -29,51 +42,90 @@ const EVENT_ICONS: Record<EventType, string> = {
   EscrowReleased:    "💸",
 };
 
-export { EVENT_COLORS, EVENT_ICONS };
-
-function randomHex(len = 16) {
-  return Array.from({ length: len }, () => Math.floor(Math.random() * 16).toString(16)).join("");
+// ── Mock helpers ─────────────────────────────────────────────────────────────
+function rnd(len = 16) {
+  return Array.from({ length: len }, () =>
+    Math.floor(Math.random() * 16).toString(16)
+  ).join("");
 }
 
-function randomAddr() {
-  return `erd1${randomHex(30)}`;
-}
+const MOCK_EVENT_TYPES: EventType[] = [
+  "TaskCreated",
+  "TaskCompleted",
+  "ServiceRegistered",
+  "ReputationUpdated",
+  "EscrowReleased",
+];
 
-const EVENT_TYPES: EventType[] = ["TaskCreated", "TaskCompleted", "ServiceRegistered", "ReputationUpdated", "EscrowReleased"];
-
-function generateMockEvent(): ChainEvent {
-  const type = EVENT_TYPES[Math.floor(Math.random() * EVENT_TYPES.length)];
-  const base = {
-    id: randomHex(8),
-    type,
-    txHash: randomHex(32),
-    timestamp: Date.now(),
-  };
+function mockEvent(): ChainEvent {
+  const type =
+    MOCK_EVENT_TYPES[Math.floor(Math.random() * MOCK_EVENT_TYPES.length)];
   const dataMap: Record<EventType, Record<string, string>> = {
-    TaskCreated:       { taskId: randomHex(6), provider: randomAddr(), amount: `${(Math.random() * 0.01).toFixed(4)} EGLD` },
-    TaskCompleted:     { taskId: randomHex(6), latency: `${Math.floor(Math.random() * 400 + 80)}ms`, proof: randomHex(16) },
-    ServiceRegistered: { serviceId: `svc-${randomHex(4)}`, category: ["data","compute","wallet-actions"][Math.floor(Math.random()*3)] },
-    ReputationUpdated: { provider: randomAddr(), score: `${Math.floor(Math.random() * 20 + 80)}`, delta: `+${(Math.random() * 2).toFixed(1)}` },
-    TaskDisputed:      { taskId: randomHex(6), reason: "timeout" },
-    EscrowReleased:    { taskId: randomHex(6), amount: `${(Math.random() * 0.02).toFixed(4)} EGLD` },
+    TaskCreated:       { taskId: rnd(6), provider: `erd1${rnd(30)}`, amount: `${(Math.random() * 0.01).toFixed(4)} EGLD` },
+    TaskCompleted:     { taskId: rnd(6), latency: `${Math.floor(Math.random() * 400 + 80)}ms`, proof: rnd(16) },
+    ServiceRegistered: { serviceId: `svc-${rnd(4)}`, category: ["data","compute","wallet-actions"][Math.floor(Math.random()*3)] },
+    ReputationUpdated: { provider: `erd1${rnd(20)}`, score: `${Math.floor(Math.random()*20+80)}`, delta: `+${(Math.random()*2).toFixed(1)}` },
+    TaskDisputed:      { taskId: rnd(6), reason: "timeout" },
+    EscrowReleased:    { taskId: rnd(6), amount: `${(Math.random()*0.02).toFixed(4)} EGLD` },
   };
-  return { ...base, data: dataMap[type] };
+  return { id: rnd(8), type, txHash: rnd(32), timestamp: Date.now(), data: dataMap[type] };
 }
 
-export function useEvents(maxEvents = 50, intervalMs = 2200) {
+// ── Hook ─────────────────────────────────────────────────────────────────────
+export function useEvents(maxEvents = 80, mockIntervalMs = 2200) {
   const [events, setEvents] = useState<ChainEvent[]>(() =>
-    Array.from({ length: 6 }, generateMockEvent)
+    Array.from({ length: 8 }, mockEvent)
   );
-  const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const abRef = useRef<{
+    events: { on(e: string, cb: (x: ChainEvent) => void): void; start(ms: number): void; stop(): void };
+  } | null>(null);
 
   useEffect(() => {
-    intervalRef.current = setInterval(() => {
-      setEvents((prev) => [generateMockEvent(), ...prev.slice(0, maxEvents - 1)]);
-    }, intervalMs);
-    return () => {
-      if (intervalRef.current) clearInterval(intervalRef.current);
-    };
-  }, [maxEvents, intervalMs]);
+    const canUseChain =
+      !!CONTRACT_ADDRESSES.escrow &&
+      !!CONTRACT_ADDRESSES.registry &&
+      !!CONTRACT_ADDRESSES.reputation;
+
+    if (canUseChain) {
+      // Real EventListener path
+      (async () => {
+        try {
+          const { AgentBazaar } = await import("@agentbazaar/sdk");
+          const config = {
+            network: { apiUrl: MVX_API_URL, chainId: MVX_ENVIRONMENT === "mainnet" ? "1" : "D" },
+            contracts: CONTRACT_ADDRESSES,
+          };
+          const ab = new AgentBazaar(config as never);
+          abRef.current = ab as never;
+
+          const pushEvent = (e: ChainEvent) =>
+            setEvents((prev) => [e, ...prev.slice(0, maxEvents - 1)]);
+
+          const eventTypes: EventType[] = [
+            "TaskCreated",
+            "TaskCompleted",
+            "ServiceRegistered",
+            "ReputationUpdated",
+            "EscrowReleased",
+          ];
+          eventTypes.forEach((t) => ab.events.on(t, (raw) => pushEvent(raw as ChainEvent)));
+          ab.events.start(500);
+        } catch (err) {
+          console.warn("[useEvents] on-chain events failed, using mock:", err);
+        }
+      })();
+
+      return () => {
+        try { abRef.current?.events.stop(); } catch { /* noop */ }
+      };
+    } else {
+      // Mock path
+      const timer = setInterval(() => {
+        setEvents((prev) => [mockEvent(), ...prev.slice(0, maxEvents - 1)]);
+      }, mockIntervalMs);
+      return () => clearInterval(timer);
+    }
+  }, [maxEvents, mockIntervalMs]);
 
   return events;
 }
