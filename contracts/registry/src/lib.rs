@@ -98,7 +98,7 @@ pub trait RegistryContract {
             metadata_uri: metadata_uri.clone(),
             stake: payment.clone(),
             active: true,
-            registered_at: self.blockchain().get_block_timestamp_seconds().into(),
+            registered_at: self.blockchain().get_block_timestamp_seconds().0,
         };
         self.services().insert(service_id.clone(), record);
         self.provider_services(&caller).insert(service_id.clone());

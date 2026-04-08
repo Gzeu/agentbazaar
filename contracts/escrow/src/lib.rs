@@ -56,6 +56,10 @@ pub trait EscrowContract {
     #[event("disputeResolved")]
     fn emit_dispute_resolved(&self, #[indexed] task_id: &ManagedBuffer, #[indexed] winner: &ManagedAddress);
 
+    fn now_u64(&self) -> u64 {
+        self.blockchain().get_block_timestamp_seconds().0
+    }
+
     #[payable("EGLD")]
     #[endpoint(createTask)]
     fn create_task(&self, task_id: ManagedBuffer, service_id: ManagedBuffer, provider: ManagedAddress, payload_hash: ManagedBuffer) {
@@ -63,7 +67,7 @@ pub trait EscrowContract {
         let payment = self.call_value().egld().clone_value();
         require!(payment > BigUint::zero(), "Must attach EGLD payment");
         let caller = self.blockchain().get_caller();
-        let now: u64 = self.blockchain().get_block_timestamp_seconds().into();
+        let now = self.now_u64();
         let record = TaskRecord {
             buyer: caller.clone(), provider: provider.clone(), service_id: service_id.clone(),
             amount: payment.clone(), status: TaskStatus::Pending,
@@ -80,7 +84,7 @@ pub trait EscrowContract {
         let mut record = self.tasks().get(&task_id).unwrap_or_else(|| sc_panic!("Task not found"));
         require!(record.provider == caller, "Not task provider");
         require!(record.status == TaskStatus::Pending, "Task not in Pending state");
-        let now: u64 = self.blockchain().get_block_timestamp_seconds().into();
+        let now = self.now_u64();
         record.status = TaskStatus::Completed;
         record.proof_hash = proof_hash.clone();
         record.completed_at = now;
@@ -96,7 +100,7 @@ pub trait EscrowContract {
         let mut record = self.tasks().get(&task_id).unwrap_or_else(|| sc_panic!("Task not found"));
         require!(record.buyer == caller, "Not task buyer");
         require!(record.status == TaskStatus::Pending, "Task not in Pending state");
-        let now: u64 = self.blockchain().get_block_timestamp_seconds().into();
+        let now = self.now_u64();
         require!(now >= record.created_at + TASK_TIMEOUT, "Task timeout not reached yet");
         let amount = record.amount.clone();
         record.status = TaskStatus::Refunded;
@@ -111,7 +115,7 @@ pub trait EscrowContract {
         let mut record = self.tasks().get(&task_id).unwrap_or_else(|| sc_panic!("Task not found"));
         require!(record.buyer == caller || record.provider == caller, "Not task participant");
         require!(record.status == TaskStatus::Pending || record.status == TaskStatus::Completed, "Cannot dispute in current state");
-        let now: u64 = self.blockchain().get_block_timestamp_seconds().into();
+        let now = self.now_u64();
         if record.status == TaskStatus::Completed {
             require!(now <= record.completed_at + DISPUTE_WINDOW, "Dispute window expired");
         }

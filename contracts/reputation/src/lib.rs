@@ -34,7 +34,7 @@ pub trait ReputationContract {
     fn emit_agent_slashed(&self, #[indexed] agent: &ManagedAddress, amount: &BigUint);
 
     fn now_u64(&self) -> u64 {
-        self.blockchain().get_block_timestamp_seconds().into()
+        self.blockchain().get_block_timestamp_seconds().0
     }
 
     fn get_or_create_reputation(&self, agent: &ManagedAddress) -> AgentReputation<Self::Api> {

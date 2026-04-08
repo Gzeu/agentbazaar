@@ -26,6 +26,10 @@ pub trait AgentBazaarDAO {
         self.proposal_count().set(0u64);
     }
 
+    fn now_u64(&self) -> u64 {
+        self.blockchain().get_block_timestamp_seconds().0
+    }
+
     #[payable("EGLD")]
     #[endpoint(depositFee)]
     fn deposit_fee(&self) {
@@ -46,7 +50,7 @@ pub trait AgentBazaarDAO {
     #[endpoint(createProposal)]
     fn create_proposal(&self, description: ManagedBuffer) -> u64 {
         let id = self.proposal_count().get() + 1;
-        let now: u64 = self.blockchain().get_block_timestamp_seconds().into();
+        let now = self.now_u64();
         let proposal = Proposal {
             id, proposer: self.blockchain().get_caller(), description,
             yes_votes: BigUint::zero(), no_votes: BigUint::zero(), executed: false,
@@ -66,7 +70,7 @@ pub trait AgentBazaarDAO {
         let voting_power = self.voting_power(&caller).get();
         require!(voting_power > BigUint::zero(), "No voting power");
         let mut proposal = self.proposals(proposal_id).get();
-        let now: u64 = self.blockchain().get_block_timestamp_seconds().into();
+        let now = self.now_u64();
         require!(now < proposal.created_at + self.vote_duration().get(), "Voting closed");
         if in_favor { proposal.yes_votes += voting_power; } else { proposal.no_votes += voting_power; }
         self.proposals(proposal_id).set(proposal);
