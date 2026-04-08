@@ -1,15 +1,22 @@
 "use client";
 import { useState } from "react";
+import Link from "next/link";
 import { useServices } from "@/hooks/useAgentBazaar";
 import { useWallet } from "@/context/WalletContext";
+import { BuyTaskModal } from "@/components/BuyTaskModal";
+import { ServiceDescriptor } from "@/hooks/useAgentBazaar";
 
-const CATEGORIES = ["All", "data", "compute", "orchestration", "compliance", "enrichment", "wallet-actions", "notifications"];
+const CATEGORIES = [
+  "All", "data", "compute", "orchestration",
+  "compliance", "enrichment", "wallet-actions", "notifications",
+];
 
 export default function MarketplacePage() {
-  const [category, setCategory] = useState("All");
-  const [search, setSearch] = useState("");
-  const { services, loading } = useServices(category, search);
-  const { connected, connect } = useWallet();
+  const [category, setCategory]       = useState("All");
+  const [search, setSearch]           = useState("");
+  const [buyTarget, setBuyTarget]     = useState<ServiceDescriptor | null>(null);
+  const { services, loading }         = useServices(category, search);
+  const { connected, openModal }      = useWallet();
 
   return (
     <main className="min-h-screen px-6 py-10">
@@ -40,8 +47,8 @@ export default function MarketplacePage() {
               className="px-3 py-1.5 rounded-lg text-xs font-medium border transition-colors"
               style={{
                 borderColor: category === cat ? "var(--color-primary)" : "var(--color-border)",
-                color: category === cat ? "var(--color-primary)" : "var(--color-text-muted)",
-                background: category === cat ? "rgba(0,194,168,0.08)" : "transparent",
+                color:       category === cat ? "var(--color-primary)" : "var(--color-text-muted)",
+                background:  category === cat ? "rgba(0,194,168,0.08)" : "transparent",
               }}
             >
               {cat}
@@ -61,15 +68,18 @@ export default function MarketplacePage() {
         ) : (
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
             {services.map((svc) => (
-              <div key={svc.serviceId} className="card flex flex-col gap-3 hover:border-[var(--color-primary)] transition-colors">
+              <div
+                key={svc.serviceId}
+                className="card flex flex-col gap-3 hover:border-[var(--color-primary)] transition-colors cursor-pointer"
+              >
                 <div className="flex items-start justify-between">
                   <span className="badge">{svc.category}</span>
                   <span className="text-xs" style={{ color: "var(--color-text-muted)" }}>⭐ {svc.score}/100</span>
                 </div>
-                <div>
+                <Link href={`/marketplace/${svc.serviceId}`} className="flex-1 block">
                   <h3 className="font-semibold text-sm" style={{ color: "var(--color-text)" }}>{svc.name}</h3>
                   <p className="text-xs mt-1" style={{ color: "var(--color-text-muted)" }}>{svc.description}</p>
-                </div>
+                </Link>
                 <div className="flex flex-wrap gap-1">
                   {svc.tags.map((t) => (
                     <span key={t} className="text-xs px-1.5 py-0.5 rounded" style={{ background: "var(--color-surface-2)", color: "var(--color-text-muted)" }}>#{t}</span>
@@ -81,7 +91,10 @@ export default function MarketplacePage() {
                     <div className="text-xs" style={{ color: "var(--color-text-muted)" }}>SLA {svc.slaMs}ms</div>
                   </div>
                   <button
-                    onClick={() => !connected && connect()}
+                    onClick={(e) => {
+                      e.preventDefault();
+                      connected ? setBuyTarget(svc) : openModal();
+                    }}
                     className="btn-primary"
                     style={{ padding: "0.4rem 1rem", fontSize: "0.78rem" }}
                   >
@@ -93,6 +106,9 @@ export default function MarketplacePage() {
           </div>
         )}
       </div>
+
+      {/* Quick-buy modal from grid */}
+      {buyTarget && <BuyTaskModal service={buyTarget} onClose={() => setBuyTarget(null)} />}
     </main>
   );
 }

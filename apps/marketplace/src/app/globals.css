@@ -1,18 +1,18 @@
 @import "tailwindcss";
 
 :root {
-  --color-bg: #0e0f0f;
-  --color-surface: #141515;
-  --color-surface-2: #1a1b1b;
-  --color-border: #2a2c2c;
-  --color-text: #e8e8e6;
-  --color-text-muted: #8a8a86;
-  --color-primary: #00c2a8;
-  --color-primary-hover: #00a891;
-  --color-danger: #ff4d4f;
-  --color-success: #52c41a;
-  --color-warning: #faad14;
-  --font-body: "Inter", system-ui, sans-serif;
+  --color-bg:           #0e0f0f;
+  --color-surface:      #141515;
+  --color-surface-2:    #1a1b1b;
+  --color-border:       #2a2c2c;
+  --color-text:         #e8e8e6;
+  --color-text-muted:   #8a8a86;
+  --color-primary:      #00c2a8;
+  --color-primary-hover:#00a891;
+  --color-danger:       #ff4d4f;
+  --color-success:      #52c41a;
+  --color-warning:      #faad14;
+  --font-body:          "Inter", system-ui, sans-serif;
 }
 
 * { box-sizing: border-box; }
@@ -24,6 +24,7 @@ body {
   -webkit-font-smoothing: antialiased;
 }
 
+/* ── Buttons ─────────────────────────────────────────────────── */
 .btn-primary {
   background: var(--color-primary);
   color: #0e0f0f;
@@ -34,8 +35,10 @@ body {
   transition: background 0.15s;
   border: none;
   cursor: pointer;
+  white-space: nowrap;
 }
-.btn-primary:hover { background: var(--color-primary-hover); }
+.btn-primary:hover  { background: var(--color-primary-hover); }
+.btn-primary:disabled { opacity: 0.5; cursor: not-allowed; }
 
 .btn-ghost {
   background: transparent;
@@ -47,9 +50,11 @@ body {
   transition: color 0.15s, background 0.15s;
   border: 1px solid var(--color-border);
   cursor: pointer;
+  white-space: nowrap;
 }
 .btn-ghost:hover { color: var(--color-text); background: var(--color-surface-2); }
 
+/* ── Cards ───────────────────────────────────────────────────── */
 .card {
   background: var(--color-surface);
   border: 1px solid var(--color-border);
@@ -57,6 +62,7 @@ body {
   padding: 1.25rem;
 }
 
+/* ── Badges ──────────────────────────────────────────────────── */
 .badge {
   display: inline-flex;
   align-items: center;
@@ -68,11 +74,11 @@ body {
   background: var(--color-surface-2);
   color: var(--color-primary);
 }
-
-.badge-success { background: rgba(82,196,26,0.12); color: var(--color-success); }
+.badge-success { background: rgba(82,196,26,0.12);  color: var(--color-success); }
 .badge-warning { background: rgba(250,173,20,0.12); color: var(--color-warning); }
-.badge-danger  { background: rgba(255,77,79,0.12);  color: var(--color-danger); }
+.badge-danger  { background: rgba(255,77,79,0.12);  color: var(--color-danger);  }
 
+/* ── Inputs ──────────────────────────────────────────────────── */
 .input {
   background: var(--color-surface);
   border: 1px solid var(--color-border);
@@ -87,8 +93,42 @@ body {
 .input:focus { border-color: var(--color-primary); }
 .input::placeholder { color: var(--color-text-muted); }
 
+.textarea {
+  resize: vertical;
+  line-height: 1.6;
+  min-height: 80px;
+}
+
+/* ── Tabs ────────────────────────────────────────────────────── */
+.tab-btn {
+  padding: 0.5rem 1rem;
+  font-size: 0.875rem;
+  font-weight: 500;
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  transition: color 0.15s;
+  margin-bottom: -1px;
+}
+
+/* ── Stepper ─────────────────────────────────────────────────── */
+.stepper-dot {
+  width: 10px;
+  height: 10px;
+  min-width: 10px;
+  border-radius: 9999px;
+  transition: background 0.3s;
+}
+
+/* ── Animations ──────────────────────────────────────────────── */
 @keyframes pulse-dot {
   0%, 100% { opacity: 1; }
-  50% { opacity: 0.3; }
+  50%       { opacity: 0.3; }
 }
 .animate-pulse-dot { animation: pulse-dot 1.5s ease-in-out infinite; }
+
+@keyframes spin {
+  from { transform: rotate(0deg); }
+  to   { transform: rotate(360deg); }
+}
+.animate-spin { animation: spin 1s linear infinite; }
