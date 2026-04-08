@@ -1,52 +1,56 @@
 import {
-  Controller,
-  Get,
-  Post,
-  Body,
-  Param,
-  HttpCode,
-  HttpStatus,
+  Controller, Get, Post, Param, Body,
+  Query, DefaultValuePipe, ParseIntPipe,
+  HttpCode, HttpStatus,
 } from '@nestjs/common';
-import { ApiTags, ApiOperation } from '@nestjs/swagger';
 import { TasksService } from './tasks.service';
-import { SubmitTaskDto, SubmitProofDto } from './dto/task.dto';
+import { SubmitTaskDto, SubmitProofDto, OpenDisputeDto } from './dto/task.dto';
 
-@ApiTags('Tasks')
-@Controller('api/v1/tasks')
+@Controller('tasks')
 export class TasksController {
-  constructor(private readonly tasksService: TasksService) {}
+  constructor(private readonly svc: TasksService) {}
 
   @Post()
   @HttpCode(HttpStatus.CREATED)
-  @ApiOperation({ summary: 'Submit a task to a provider agent' })
-  async submitTask(@Body() dto: SubmitTaskDto) {
-    return this.tasksService.submitTask(dto);
+  submit(@Body() dto: SubmitTaskDto) {
+    return this.svc.submitTask(dto);
   }
 
-  @Get(':taskId')
-  @ApiOperation({ summary: 'Get task status and result' })
-  async getTask(@Param('taskId') taskId: string) {
-    return this.tasksService.getTask(taskId);
-  }
-
-  @Post(':taskId/proof')
-  @ApiOperation({ summary: 'Submit execution proof for a task' })
-  async submitProof(
-    @Param('taskId') taskId: string,
-    @Body() dto: SubmitProofDto,
+  @Get()
+  list(
+    @Query('page', new DefaultValuePipe(1), ParseIntPipe) page: number,
+    @Query('limit', new DefaultValuePipe(20), ParseIntPipe) limit: number,
   ) {
-    return this.tasksService.submitProof(taskId, dto);
+    return this.svc.listTasks(page, limit);
   }
 
   @Get('consumer/:address')
-  @ApiOperation({ summary: 'Get all tasks by consumer address' })
-  async getTasksByConsumer(@Param('address') address: string) {
-    return this.tasksService.getTasksByConsumer(address);
+  byConsumer(@Param('address') address: string) {
+    return this.svc.getTasksByConsumer(address);
   }
 
   @Get('provider/:address')
-  @ApiOperation({ summary: 'Get all tasks by provider address' })
-  async getTasksByProvider(@Param('address') address: string) {
-    return this.tasksService.getTasksByProvider(address);
+  byProvider(@Param('address') address: string) {
+    return this.svc.getTasksByProvider(address);
+  }
+
+  @Get(':id')
+  getOne(@Param('id') id: string) {
+    return this.svc.getTask(id);
+  }
+
+  @Post(':id/proof')
+  @HttpCode(HttpStatus.OK)
+  proof(@Param('id') id: string, @Body() dto: SubmitProofDto) {
+    return this.svc.submitProof(id, dto);
+  }
+
+  @Post(':id/dispute')
+  @HttpCode(HttpStatus.OK)
+  dispute(
+    @Param('id') id: string,
+    @Body() dto: OpenDisputeDto & { callerAddress: string },
+  ) {
+    return this.svc.openDispute(id, dto, dto.callerAddress);
   }
 }

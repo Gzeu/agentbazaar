@@ -1,59 +1,55 @@
 import {
   IsString,
-  IsEnum,
-  IsBoolean,
   IsNumber,
+  IsBoolean,
+  IsArray,
   IsOptional,
   IsObject,
+  IsIn,
   Min,
   Max,
 } from 'class-validator';
-import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
+import { Type } from 'class-transformer';
 
-export type ServiceCategory =
-  | 'data-fetching'
-  | 'compute-offload'
-  | 'wallet-actions'
-  | 'compliance'
-  | 'enrichment'
-  | 'orchestration'
-  | 'notifications';
-
-export type PricingModel = 'per_request' | 'per_second' | 'per_result' | 'subscription';
+export const SERVICE_CATEGORIES = [
+  'data', 'compute', 'orchestration', 'compliance',
+  'enrichment', 'wallet-actions', 'notifications', 'storage',
+] as const;
+export type ServiceCategory = (typeof SERVICE_CATEGORIES)[number];
 
 export class RegisterServiceDto {
-  @ApiProperty() @IsString() name: string;
-  @ApiProperty() @IsString() description: string;
-  @ApiProperty() @IsString() category: ServiceCategory;
-  @ApiProperty() @IsString() version: string;
-  @ApiProperty() @IsString() providerAddress: string;
-  @ApiProperty() @IsString() endpoint: string;
-  @ApiProperty() @IsString() pricingModel: PricingModel;
-  @ApiProperty() @IsString() priceAmount: string;
-  @ApiProperty() @IsString() priceToken: string;
-  @ApiProperty() @IsNumber() @Min(100) @Max(60000) maxLatencyMs: number;
-  @ApiProperty() @IsNumber() @Min(0) @Max(1) uptimeGuarantee: number;
-  @ApiPropertyOptional() @IsObject() @IsOptional() inputSchema?: Record<string, unknown>;
-  @ApiPropertyOptional() @IsObject() @IsOptional() outputSchema?: Record<string, unknown>;
-  @ApiProperty() @IsString() stakeAmount: string;
-  @ApiProperty() @IsBoolean() ucpCompatible: boolean;
-  @ApiProperty() @IsBoolean() mcpCompatible: boolean;
-  @ApiPropertyOptional() @IsString({ each: true }) @IsOptional() tags?: string[];
+  @IsString() name: string;
+  @IsString() description: string;
+  @IsIn(SERVICE_CATEGORIES) category: ServiceCategory;
+  @IsString() version: string;
+  @IsString() providerAddress: string;
+  @IsString() endpoint: string;
+  @IsString() pricingModel: string;
+  @IsString() priceAmount: string;
+  @IsString() priceToken: string;
+  @IsNumber() @Min(50) @Max(30_000) maxLatencyMs: number;
+  @IsNumber() @Min(0) @Max(100) uptimeGuarantee: number;
+  @IsOptional() @IsObject() inputSchema?: Record<string, unknown>;
+  @IsOptional() @IsObject() outputSchema?: Record<string, unknown>;
+  @IsString() stakeAmount: string;
+  @IsBoolean() ucpCompatible: boolean;
+  @IsBoolean() mcpCompatible: boolean;
+  @IsOptional() @IsArray() @IsString({ each: true }) tags?: string[];
 }
 
 export class UpdateServiceDto {
-  @ApiPropertyOptional() @IsString() @IsOptional() descriptorHash?: string;
-  @ApiPropertyOptional() @IsString() @IsOptional() priceAmount?: string;
-  @ApiPropertyOptional() @IsObject() @IsOptional() inputSchema?: Record<string, unknown>;
-  @ApiPropertyOptional() @IsObject() @IsOptional() outputSchema?: Record<string, unknown>;
+  @IsOptional() @IsString() priceAmount?: string;
+  @IsOptional() @IsBoolean() active?: boolean;
+  @IsOptional() @IsObject() inputSchema?: Record<string, unknown>;
+  @IsOptional() @IsObject() outputSchema?: Record<string, unknown>;
 }
 
 export class ServiceFilterDto {
-  @ApiPropertyOptional() @IsString() @IsOptional() category?: string;
-  @ApiPropertyOptional() @IsString() @IsOptional() maxPrice?: string;
-  @ApiPropertyOptional() @IsNumber() @IsOptional() minReputation?: number;
-  @ApiPropertyOptional() @IsBoolean() @IsOptional() ucpCompatible?: boolean;
-  @ApiPropertyOptional() @IsBoolean() @IsOptional() mcpCompatible?: boolean;
-  @ApiPropertyOptional() @IsNumber() @IsOptional() page?: number;
-  @ApiPropertyOptional() @IsNumber() @IsOptional() limit?: number;
+  @IsOptional() @IsIn(SERVICE_CATEGORIES) category?: ServiceCategory;
+  @IsOptional() @IsNumber() @Type(() => Number) minReputation?: number;
+  @IsOptional() @IsBoolean() @Type(() => Boolean) ucpCompatible?: boolean;
+  @IsOptional() @IsBoolean() @Type(() => Boolean) mcpCompatible?: boolean;
+  @IsOptional() @IsString() search?: string;
+  @IsOptional() @IsNumber() @Type(() => Number) @Min(1) page?: number;
+  @IsOptional() @IsNumber() @Type(() => Number) @Min(1) @Max(100) limit?: number;
 }

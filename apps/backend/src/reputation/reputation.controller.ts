@@ -1,21 +1,19 @@
-import { Controller, Get, Param } from '@nestjs/common';
-import { ApiTags, ApiOperation } from '@nestjs/swagger';
+import { Controller, Get, Param, Query, DefaultValuePipe, ParseIntPipe } from '@nestjs/common';
 import { ReputationService } from './reputation.service';
 
-@ApiTags('Reputation')
-@Controller('api/v1/reputation')
+@Controller('reputation')
 export class ReputationController {
-  constructor(private readonly reputationService: ReputationService) {}
+  constructor(private readonly svc: ReputationService) {}
 
-  @Get(':address')
-  @ApiOperation({ summary: 'Get reputation score for an agent address' })
-  async getReputation(@Param('address') address: string) {
-    return this.reputationService.getReputation(address);
+  @Get('leaderboard')
+  leaderboard(
+    @Query('limit', new DefaultValuePipe(50), ParseIntPipe) limit: number,
+  ) {
+    return this.svc.getLeaderboard(Math.min(limit, 200));
   }
 
-  @Get(':address/history')
-  @ApiOperation({ summary: 'Get task history for an agent' })
-  async getHistory(@Param('address') address: string) {
-    return this.reputationService.getHistory(address);
+  @Get(':address')
+  getOne(@Param('address') address: string) {
+    return this.svc.getReputation(address);
   }
 }
