@@ -21,10 +21,29 @@ module.exports = {
           800: '#115e59',
           900: '#134e4a',
         },
+        dark: {
+          bg:       '#0d0f12',
+          surface:  '#131720',
+          surface2: '#1a2030',
+          border:   '#1f2937',
+          text:     '#e2e8f0',
+          muted:    '#64748b',
+        },
       },
       fontFamily: {
         sans: ['Inter', 'system-ui', 'sans-serif'],
         mono: ['JetBrains Mono', 'monospace'],
+      },
+      animation: {
+        'fade-in':    'fadeIn 0.4s ease-out',
+        'pulse-slow': 'pulse 3s cubic-bezier(0.4, 0, 0.6, 1) infinite',
+        'spin':       'spin 1s linear infinite',
+      },
+      keyframes: {
+        fadeIn: {
+          '0%':   { opacity: '0', transform: 'translateY(8px)' },
+          '100%': { opacity: '1', transform: 'translateY(0)' },
+        },
       },
     },
   },
