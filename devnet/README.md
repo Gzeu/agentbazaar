@@ -1,88 +1,34 @@
-# AgentBazaar — Devnet Deploy Guide
+# Devnet Setup
 
-## Prerequisites
+This folder contains configuration and deployment artifacts for the MultiversX devnet.
 
-```bash
-# Install mxpy (MultiversX Python CLI)
-pip3 install multiversx-sdk-cli
-
-# Verify
-mxpy --version
-```
-
-## Wallet Setup (Devnet)
+## Quick Start
 
 ```bash
-# Generate a new devnet wallet
-mxpy wallet new --format pem --outfile ~/agentbazaar-devnet.pem
+# 1. Generate wallets for testing
+mxpy wallet new --format pem --outfile ./devnet/provider.pem
+mxpy wallet new --format pem --outfile ./devnet/consumer.pem
 
-# Fund it from devnet faucet
+# 2. Fund wallets from devnet faucet
 # https://devnet-wallet.multiversx.com/faucet
-# Or via: https://r3d4.fr/faucet
+
+# 3. Deploy all contracts
+bash scripts/deploy.sh devnet ./devnet/provider.pem
+
+# 4. Check deployed addresses
+cat ./devnet/addresses.json
 ```
 
-## Deploy All Contracts
+## Files
 
-```bash
-chmod +x devnet/deploy.sh
-./devnet/deploy.sh --pem ~/agentbazaar-devnet.pem
-```
+| File | Description |
+|------|-------------|
+| `config.json` | Network config, SDK defaults, demo service definitions |
+| `addresses.json` | Auto-generated after deploy — contains contract addresses |
+| `provider.pem` | Provider agent wallet (gitignored) |
+| `consumer.pem` | Consumer agent wallet (gitignored) |
+| `registry-deploy.json` | Raw deploy output for registry |
+| `escrow-deploy.json` | Raw deploy output for escrow |
+| `reputation-deploy.json` | Raw deploy output for reputation |
 
-Deploy-ul face automat:
-1. Build WASM pentru toate 3 contracte
-2. Deploy Registry → Escrow → Reputation în ordine corectă
-3. Actualizează `devnet/multiversx.json` cu adresele obținute
-
-## Interact
-
-```bash
-chmod +x devnet/interact.sh
-
-# Înregistrează un serviciu demo
-./devnet/interact.sh --pem ~/agentbazaar-devnet.pem --action registerService
-
-# Creează un task cu escrow
-./devnet/interact.sh --pem ~/agentbazaar-devnet.pem --action createTask
-
-# Query serviciu
-./devnet/interact.sh --pem ~/agentbazaar-devnet.pem --action getService
-
-# Query task
-./devnet/interact.sh --pem ~/agentbazaar-devnet.pem --action getTask
-```
-
-## Contract Addresses (după deploy)
-
-Adresele sunt salvate automat în `devnet/multiversx.json` sub cheia `.contracts`.
-
-## Explorer Links
-
-- Devnet Explorer: https://devnet-explorer.multiversx.com
-- Devnet API: https://devnet-api.multiversx.com
-- Devnet Faucet: https://devnet-wallet.multiversx.com/faucet
-
-## Contract Architecture
-
-```
-Registry Contract
-  └── stochează service descriptors, stake providers
-  └── emite: serviceRegistered, serviceDeactivated, providerSlashed
-
-Escrow Contract
-  └── blochează EGLD per task, release la proof, refund la timeout
-  └── apelează Registry.incrementTaskCount după completare
-  └── emite: taskCreated, taskCompleted, taskRefunded, disputeOpened
-
-Reputation Contract
-  └── calculează scor compozit per provider
-  └── poate triggera slash via Registry.slashProvider
-  └── emite: reputationUpdated, providerSlashed
-```
-
-## Structura Deploy Output
-
-După deploy, vei găsi:
-- `devnet/registry-deploy.json` — tx hash + adresă contract
-- `devnet/escrow-deploy.json`
-- `devnet/reputation-deploy.json`
-- `devnet/multiversx.json` — actualizat cu adresele live
+> ⚠️ Never commit `.pem` files or wallets with real funds to git.

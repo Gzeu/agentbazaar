@@ -1,0 +1,40 @@
+{
+  "network": "devnet",
+  "chainId": "D",
+  "apiUrl": "https://devnet-api.multiversx.com",
+  "gatewayUrl": "https://devnet-gateway.multiversx.com",
+  "explorerUrl": "https://devnet-explorer.multiversx.com",
+  "contracts": {
+    "registry": "",
+    "escrow": "",
+    "reputation": ""
+  },
+  "sdk": {
+    "minStakeEgld": "0.1",
+    "defaultGasLimit": 10000000,
+    "disputeWindowSeconds": 3600,
+    "marketplaceFeePercent": 1,
+    "minimumFeeEgld": "0.0001"
+  },
+  "demo": {
+    "providerWallet": "./devnet/provider.pem",
+    "consumerWallet": "./devnet/consumer.pem",
+    "demoServices": [
+      {
+        "serviceId": "coingecko-price-v1",
+        "category": "data-fetching",
+        "pricePerCall": "1000000000000000"
+      },
+      {
+        "serviceId": "sha256-compute-v1",
+        "category": "compute",
+        "pricePerCall": "500000000000000"
+      },
+      {
+        "serviceId": "workflow-orchestrator-v1",
+        "category": "workflow",
+        "pricePerCall": "5000000000000000"
+      }
+    ]
+  }
+}

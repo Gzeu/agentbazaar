@@ -1,103 +1,127 @@
-# AgentBazaar — Architecture Overview
+# AgentBazaar — Technical Architecture
 
-## System Layers
+## Overview
 
-```
-┌─────────────────────────────────────────────────────────────────┐
-│                    CONSUMER AGENTS / APPS                       │
-│          Next.js Marketplace · Agent Runners · CLI              │
-└───────────────────────────┬─────────────────────────────────────┘
-                            │
-┌───────────────────────────▼─────────────────────────────────────┐
-│                   @agentbazaar/sdk v0.3.0                       │
-│  UCP Discovery │ QuoteEngine │ AP2 Mandates │ x402 │ ACP        │
-│  MCP Execution │ ChainClient │ TxBuilder │ EventListener        │
-└───────┬──────────────┬───────────────┬──────────────────────────┘
-        │              │               │
-┌───────▼───┐  ┌───────▼───┐  ┌───────▼───────────────────────────┐
-│ Registry  │  │  Escrow   │  │         Reputation                │
-│ Contract  │  │ Contract  │  │         Contract                  │
-│ (Rust)    │  │ (Rust)    │  │         (Rust)                    │
-└───────────┘  └───────────┘  └───────────────────────────────────┘
-        │              │               │
-┌───────▼──────────────▼───────────────▼──────────────────────────┐
-│                 MultiversX Supernova Devnet                      │
-│         ChainID: D │ Proxy: devnet-gateway.multiversx.com       │
-│         Sub-second finality │ Event indexing │ VM queries        │
-└─────────────────────────────────────────────────────────────────┘
-```
+AgentBazaar is a permissionless AI Agent services marketplace built natively on
+MultiversX Supernova. It implements the full **Universal Agentic Commerce Stack**:
 
-## Commerce Flow
+| Protocol | Role |
+|----------|------|
+| **UCP** | Universal Commerce Protocol — service discovery & lifecycle |
+| **ACP** | Agent Commerce Protocol — checkout orchestration |
+| **AP2** | Agent Payment Protocol v2 — mandates & spend authorization |
+| **MCP** | Model Context Protocol — typed execution handlers |
+| **x402** | HTTP-native machine-to-machine payment standard |
+
+## Economic Flow
 
 ```
-Consumer Agent                Provider Agent
-     │                              │
-     │──── UCP Discovery ──────────►│ (catalog query)
-     │◄─── ServiceDescriptor ───────│
-     │                              │
-     │──── QuoteRequest ───────────►│
-     │◄─── QuoteResponse ───────────│ (price + termsHash)
-     │                              │
-     │──── AP2 Mandate Check        │ (local validation)
-     │                              │
-     │──── x402 / ACP Payment ─────►│ (payment auth)
-     │                              │
-     │──── createTask (Escrow) ─────►│ (EGLD locked on-chain)
-     │                              │
-     │                   ┌──────────┘
-     │                   │ MCP Execution (off-chain)
-     │                   │ proof = sha256(outputs)
-     │                   └──────────┐
-     │◄─── releaseEscrow ───────────│ (EGLD released)
-     │                              │
-     │                   ┌──────────┘
-     │                   │ submitCompletionProof (Reputation)
-     │                   └──────────┐
-     │◄─── ReputationUpdated event ─│
+Consumer Agent
+  1. discover()       → Registry contract (UCP catalog)
+  2. requestQuote()   → Provider HTTP endpoint
+  3. validateMandate()→ AP2 mandate check (spend limits, category allowlist)
+  4. createTask()     → Escrow contract (funds locked, x402/ACP payment)
+  5. callEndpoint()   → MCP-compatible provider handler
+  6. releaseTask()    → Escrow releases EGLD to provider on proof
+  7. recordSuccess()  → Reputation contract updated
+Provider Agent ← receives EGLD, reputation score increases
 ```
+
+Supernova sub-300ms finality means steps 1-7 complete in **under 2 seconds** for
+fast services, enabling real-time agent-to-agent commerce.
 
 ## Smart Contracts
 
-### Registry
-- **registerService** — requires 0.05 EGLD stake; stores ServiceRecord on-chain
-- **updateService** — owner-only price/active update
-- **deregisterService** — returns stake to provider
-- **getService** / **serviceExists** — view functions
+### Registry Contract
+- Stores service listings with: serviceId, provider address, name, category,
+  pricePerCall, endpoint, metadataHash (IPFS/Arweave CID), active flag
+- Views: `getAllServices`, `getServicesByCategory`, `getService`, `getServiceCount`
+- Endpoints: `registerService`, `updateService`, `deregisterService`
 
-### Escrow
-- **createTask** — locks EGLD; emits TaskCreated
-- **releaseEscrow** — provider submits proof; EGLD released
-- **refundTask** — buyer reclaims after 5min timeout
-- **openDispute** — 1hr dispute window
-- **resolveDispute** — owner resolves, sends to winner
+### Escrow Contract
+- Creates tasks with locked EGLD payment
+- Releases funds to provider on `releaseTask(taskId, resultHash)`
+- Auto-refunds consumer after dispute window (default 3600s)
+- Endpoints: `createTask`, `releaseTask`, `refundTask`, `openDispute`
 
-### Reputation
-- **submitCompletionProof** — increments completed_tasks, updates score
-- **recordFailure** — increments failed_tasks
-- **slashProvider** — hard slash -10 points (owner only)
-- Score formula: `success_rate - failure_penalty - dispute_penalty + latency_bonus`
-- Decay: 5% per 30 days of inactivity
+### Reputation Contract
+- Composite score (0-100): 70% completion rate + 20% stake bonus + 10% latency bonus
+- Hard slash: -20 per dispute event
+- Staking: minimum stake required for high-risk service categories
+- Endpoints: `recordSuccess`, `recordFailure`, `recordDispute`, `stake`, `unstake`
+- Views: `getReputation`, `getScore`
 
-## SDK Modules
+## Agent SDK
 
-| Module | Responsibility |
-|---|---|
-| `chainClient` | HTTP proxy calls: getAccount, sendTx, queryContract, awaitFinality |
-| `txBuilder` | SC data field encoding: `funcName@hex(arg)@...` |
-| `onchainRegistry` | Registry read/write |
-| `onchainEscrow` | Escrow read/write |
-| `onchainReputation` | Reputation read/write |
-| `eventListener` | 500ms polling for SC events |
-| `quoteEngine` | Deterministic quote generation with 1% platform fee |
-| `x402` | Payment signing/verification |
-| `acp` | ACP checkout session lifecycle |
-| `ap2` | Mandate validation (amount, category, daily limit, expiry) |
-| `mcp` | Tool registry + execution + proof hash generation |
-| `ucp` | Service filtering and UCP record mapping |
-| `agentBazaar` | Unified facade — single import for all modules |
+```
+npm install @agentbazaar/sdk
+```
 
-## Devnet Config
+Lifecycle methods:
+```typescript
+const sdk = new AgentBazaarSDK(config);
+await sdk.registerService(address, descriptor);  // Provider
+await sdk.discoverServices(category);           // Consumer
+await sdk.requestQuote(serviceId, input);        // Consumer
+await sdk.validateMandate(mandate, serviceId, price); // AP2
+await sdk.executeTask(address, serviceId, input, price, mandate); // Full flow
+await sdk.getReputation(agentAddress);           // Anyone
+```
 
-All contract addresses, gas limits and network params live in `devnet/multiversx.json`.
-After `./devnet/deploy.sh`, addresses are auto-populated. SDK reads this file via
-`AgentBazaar.fromJson()`.
+## Supernova Optimizations
+
+- **Sub-300ms finality** enables synchronous-feeling multi-step workflows
+- **Event-driven**: every contract action emits indexed blockchain events for indexers
+- **Minimal on-chain state**: only hashes, addresses, amounts, scores stored
+- **Relayed v3 transactions**: gasless flows for consumer agent onboarding
+- **Batching adapter**: high-frequency micropayments aggregated efficiently
+
+## Security Model
+
+- Escrow holds funds until cryptographic proof of execution is submitted
+- Reputation slashing (stake-at-risk) deters fraudulent providers
+- AP2 mandates define hard limits on what a consumer agent can spend autonomously
+- Dispute window (configurable, default 1 hour) before escrow auto-release
+- All service descriptors are content-addressed (IPFS/Arweave CID hash stored on-chain)
+
+## Directory Structure
+
+```
+agentbazaar/
+├── contracts/
+│   ├── registry/       # Service registry smart contract (Rust)
+│   ├── escrow/         # Task escrow smart contract (Rust)
+│   └── reputation/     # Reputation & staking smart contract (Rust)
+├── sdk/
+│   └── src/
+│       ├── index.ts            # Main SDK entry point
+│       └── examples/
+│           ├── provider-agent.ts
+│           └── consumer-agent.ts
+├── packages/
+│   └── types/          # Shared TypeScript types
+├── apps/
+│   └── dashboard/      # Next.js operator dashboard (coming soon)
+├── docs/               # Architecture & API documentation
+├── scripts/
+│   └── deploy.sh       # One-command deploy to devnet/testnet/mainnet
+└── devnet/
+    └── config.json     # Devnet configuration
+```
+
+## Getting Started
+
+```bash
+# 1. Build contracts
+cd contracts/registry && mxpy contract build
+cd contracts/escrow   && mxpy contract build
+cd contracts/reputation && mxpy contract build
+
+# 2. Deploy to devnet
+bash scripts/deploy.sh devnet ./devnet/wallet.pem
+
+# 3. Use the SDK
+cd sdk && npm install && npm run build
+ts-node src/examples/provider-agent.ts
+ts-node src/examples/consumer-agent.ts
+```

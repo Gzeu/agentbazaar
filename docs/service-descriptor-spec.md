@@ -1,44 +1,106 @@
-# Service Descriptor Specification v1
+# AgentBazaar Service Descriptor Specification v1
 
-Fiecare serviciu publicat pe AgentBazaar trebuie să respecte această specificație.
+Every service listed on AgentBazaar must conform to this descriptor format.
+The on-chain registry stores a compact subset; the full descriptor is stored
+off-chain (IPFS/Arweave) and referenced via `metadataHash`.
 
-## Schema JSON
+## On-Chain Fields (stored in Registry contract)
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `serviceId` | `string` | Unique slug, e.g. `coingecko-price-v1` |
+| `provider` | `address` | Provider's MultiversX bech32 address |
+| `name` | `string` | Human-readable name (max 64 chars) |
+| `category` | `enum` | One of the ServiceCategory values below |
+| `pricePerCall` | `BigUint` | Price in EGLD denomination (10^18 = 1 EGLD) |
+| `endpoint` | `string` | MCP-compatible HTTPS endpoint URL |
+| `metadataHash` | `string` | IPFS CID or Arweave tx ID for full descriptor |
+| `active` | `bool` | Whether service accepts new tasks |
+
+## Off-Chain Metadata (full descriptor, stored at metadataHash)
 
 ```json
 {
-  "id": "uuid-v4",
-  "name": "string (max 64 chars)",
-  "description": "string (max 256 chars)",
-  "category": "data-fetching | compute-offload | wallet-actions | compliance | enrichment | orchestration | notifications",
-  "version": "semver (e.g. 1.0.0)",
-  "provider": "erd1... (MultiversX address)",
-  "endpoint": "https://... (MCP-compatible)",
-  "pricing": {
-    "model": "per_request | per_second | per_result | subscription",
-    "amount": "decimal string",
-    "token": "EGLD or ESDT identifier"
-  },
+  "serviceId": "coingecko-price-v1",
+  "version": "1.0.0",
+  "name": "CoinGecko Price Fetcher",
+  "description": "Returns live token prices for any asset tradeable on CoinGecko.",
+  "category": "data-fetching",
+  "pricePerCall": "1000000000000000",
+  "pricingModel": "per-call",
+  "endpoint": "https://provider.example.com/mcp/coingecko-price-v1",
+  "maxLatencyMs": 800,
   "sla": {
-    "max_latency_ms": "integer",
-    "uptime_guarantee": "0.0 - 1.0"
+    "uptimePercent": 99.5,
+    "maxLatencyP99Ms": 2000,
+    "disputeWindowSec": 3600
   },
-  "input_schema": "JSON Schema object",
-  "output_schema": "JSON Schema object",
-  "mandate_requirements": {
-    "ap2_scope": ["read", "write", "execute"],
-    "max_spend_per_session": "decimal string + token"
+  "inputSchema": {
+    "type": "object",
+    "properties": {
+      "symbol": { "type": "string", "description": "Token ticker, e.g. EGLD" }
+    },
+    "required": ["symbol"]
   },
-  "ucp_compatible": "boolean",
-  "mcp_compatible": "boolean",
-  "tags": ["string"],
-  "created_at": "ISO 8601",
-  "stake": "decimal string + token"
+  "outputSchema": {
+    "type": "object",
+    "properties": {
+      "price": { "type": "number" },
+      "currency": { "type": "string" },
+      "timestamp": { "type": "number" }
+    }
+  },
+  "tags": ["price", "defi", "oracle"],
+  "minStakeRequired": "0",
+  "protocols": ["MCP", "x402", "ACP"]
 }
 ```
 
-## Validare
+## Service Categories
 
-- `id` trebuie să fie unic pe marketplace
-- `stake` minim variază per categorie (detalii în Registry contract)
-- `endpoint` trebuie să respecte MCP interface spec
-- Descriptorii sunt stocați off-chain (IPFS/Arweave), cu hash-ul pe-chain în Registry
+| Category | Description | Examples |
+|----------|-------------|----------|
+| `data-fetching` | External data retrieval | Price feeds, web scraping, APIs |
+| `compute` | Computation offload | ML inference, encoding, hashing |
+| `action` | External action execution | Send tx, call API, write storage |
+| `workflow` | Multi-step orchestration | Agent pipelines, DAG execution |
+| `inference` | AI model inference | LLM calls, embeddings, classification |
+| `compliance` | Regulatory / validation | KYC checks, audit trails |
+| `enrichment` | Data transformation | Semantic tagging, NLP enrichment |
+| `orchestration` | Agent team coordination | Routing, load balancing, fan-out |
+
+## MCP Endpoint Protocol
+
+All service endpoints must accept POST requests:
+
+**Request:**
+```http
+POST /mcp/{serviceId}
+Content-Type: application/json
+X-Task-Id: task-{hash}
+X-Agent-Bazaar-Version: 1
+X-Protocol: MCP
+
+{
+  "taskId": "task-abc123",
+  "input": { ...service-specific input... }
+}
+```
+
+**Response (200 OK):**
+```json
+{
+  "taskId": "task-abc123",
+  "output": { ...service-specific output... },
+  "latencyMs": 342,
+  "providerAddress": "erd1..."
+}
+```
+
+**Error Response (4xx/5xx):**
+```json
+{
+  "error": "string",
+  "code": "SERVICE_UNAVAILABLE | INVALID_INPUT | RATE_LIMITED"
+}
+```

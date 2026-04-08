@@ -1,20 +1,19 @@
 [package]
 name = "reputation"
 version = "0.1.0"
+authors = ["George Pricop <gzeu@agentbazaar.io>"]
 edition = "2021"
 
 [lib]
 path = "src/lib.rs"
 
-[features]
-default = []
-
 [dependencies.multiversx-sc]
 version = "0.54.0"
+features = []
 
 [dev-dependencies.multiversx-sc-scenario]
 version = "0.54.0"
 
 [[bin]]
-name = "reputation-meta"
+name = "reputation_meta"
 path = "meta/main.rs"

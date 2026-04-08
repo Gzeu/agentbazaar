@@ -1,106 +1,117 @@
-use multiversx_sc_scenario::imports::*;
-
-const REPUTATION_ADDRESS: TestSCAddress = TestSCAddress::new("reputation");
-const ESCROW_ADDRESS: TestSCAddress = TestSCAddress::new("escrow");
-const PROVIDER: TestAddress = TestAddress::new("provider");
-const OWNER: TestAddress = TestAddress::new("owner");
-
-mod reputation_proxy {
-    multiversx_sc::imports!();
-    #[multiversx_sc::proxy]
-    pub trait ReputationProxy {
-        #[init]
-        fn init(&self, escrow_address: ManagedAddress);
-
-        #[endpoint(submitCompletionProof)]
-        fn submit_completion_proof(
-            &self,
-            task_id: ManagedBuffer,
-            proof_hash: ManagedBuffer,
-            latency_ms: u64,
-        );
-
-        #[endpoint(slashProvider)]
-        fn slash_provider(
-            &self,
-            provider: ManagedAddress,
-            task_id: ManagedBuffer,
-            reason: ManagedBuffer,
-        );
-
-        #[view(getScore)]
-        fn get_score(&self, provider: ManagedAddress) -> u64;
-
-        #[view(getReputation)]
-        fn get_reputation(&self, provider: ManagedAddress) -> reputation::storage::ReputationRecord<StaticApi>;
-    }
-}
+use multiversx_sc_scenario::*;
 
 fn world() -> ScenarioWorld {
-    let mut world = ScenarioWorld::new();
-    world.register_contract("mxsc:output/reputation.mxsc.json", reputation::ContractBuilder);
-    world
+    let mut blockchain = ScenarioWorld::new();
+    blockchain.set_current_dir_from_workspace("contracts/reputation");
+    blockchain.register_contract(
+        "mxsc:output/reputation.mxsc.json",
+        reputation::ContractBuilder,
+    );
+    blockchain
 }
 
 #[test]
-fn test_initial_score_is_50() {
+fn test_init() {
     let mut world = world();
-    world.account(OWNER).nonce(1);
-    world.account(PROVIDER).nonce(1);
+    let owner = TestAddress::new("owner");
+    let contract = TestSCAddress::new("reputation");
+    let min_stake = BigUint::from(100_000_000_000_000_000u64); // 0.1 EGLD
 
+    world.account(owner).balance(BigUint::from(10u64) * BigUint::from(1_000_000_000_000_000_000u64));
     world
         .tx()
-        .from(OWNER)
-        .typed(reputation_proxy::ReputationProxyMethods)
-        .init(ManagedAddress::from(ESCROW_ADDRESS.eval_to_array()))
-        .code("mxsc:output/reputation.mxsc.json")
-        .new_address(REPUTATION_ADDRESS)
+        .from(owner)
+        .typed(reputation::ReputationContractProxy)
+        .init(min_stake.clone())
+        .code(MxscPath::new("output/reputation.mxsc.json"))
+        .new_address(contract)
         .run();
 
-    let score = world
+    // Default score for unknown agent should be 50
+    let score: u64 = world
         .query()
-        .to(REPUTATION_ADDRESS)
-        .typed(reputation_proxy::ReputationProxyMethods)
-        .get_score(ManagedAddress::from(PROVIDER.eval_to_array()))
+        .to(contract)
+        .typed(reputation::ReputationContractProxy)
+        .get_score(owner)
         .returns(ReturnsResult)
         .run();
-
     assert_eq!(score, 50);
 }
 
 #[test]
-fn test_submit_proof_increases_completed() {
+fn test_record_success_increases_score() {
     let mut world = world();
-    world.account(OWNER).nonce(1);
+    let owner = TestAddress::new("owner");
+    let agent = TestAddress::new("agent");
+    let contract = TestSCAddress::new("reputation");
+    let min_stake = BigUint::from(100_000_000_000_000_000u64);
 
+    world.account(owner).balance(BigUint::from(10u64) * BigUint::from(1_000_000_000_000_000_000u64));
+    world.account(agent).balance(BigUint::zero());
     world
         .tx()
-        .from(OWNER)
-        .typed(reputation_proxy::ReputationProxyMethods)
-        .init(ManagedAddress::from(ESCROW_ADDRESS.eval_to_array()))
-        .code("mxsc:output/reputation.mxsc.json")
-        .new_address(REPUTATION_ADDRESS)
+        .from(owner)
+        .typed(reputation::ReputationContractProxy)
+        .init(min_stake)
+        .code(MxscPath::new("output/reputation.mxsc.json"))
+        .new_address(contract)
         .run();
 
-    world
-        .tx()
-        .from(OWNER)
-        .to(REPUTATION_ADDRESS)
-        .typed(reputation_proxy::ReputationProxyMethods)
-        .submit_completion_proof(
-            ManagedBuffer::from(b"task-001"),
-            ManagedBuffer::from(b"0xproofhash"),
-            200u64,
-        )
-        .run();
+    // Record 10 successful tasks at 300ms latency
+    for _ in 0..10 {
+        world
+            .tx()
+            .from(owner)
+            .to(contract)
+            .typed(reputation::ReputationContractProxy)
+            .record_success(agent.to_managed_address(), 300u64)
+            .run();
+    }
 
-    let rep = world
+    let score: u64 = world
         .query()
-        .to(REPUTATION_ADDRESS)
-        .typed(reputation_proxy::ReputationProxyMethods)
-        .get_reputation(ManagedAddress::from(OWNER.eval_to_array()))
+        .to(contract)
+        .typed(reputation::ReputationContractProxy)
+        .get_score(agent.to_managed_address())
         .returns(ReturnsResult)
         .run();
+    // 10/10 completion = 70 base + 10 latency bonus = 80
+    assert!(score >= 75, "Score should be high after 10 successes, got {}", score);
+}
 
-    assert_eq!(rep.completed_tasks, 1);
+#[test]
+fn test_dispute_decreases_score() {
+    let mut world = world();
+    let owner = TestAddress::new("owner");
+    let agent = TestAddress::new("agent");
+    let contract = TestSCAddress::new("reputation");
+
+    world.account(owner).balance(BigUint::from(10u64) * BigUint::from(1_000_000_000_000_000_000u64));
+    world.account(agent).balance(BigUint::zero());
+    world
+        .tx()
+        .from(owner)
+        .typed(reputation::ReputationContractProxy)
+        .init(BigUint::from(100_000_000_000_000_000u64))
+        .code(MxscPath::new("output/reputation.mxsc.json"))
+        .new_address(contract)
+        .run();
+
+    world
+        .tx()
+        .from(owner)
+        .to(contract)
+        .typed(reputation::ReputationContractProxy)
+        .record_dispute(agent.to_managed_address())
+        .run();
+
+    let score: u64 = world
+        .query()
+        .to(contract)
+        .typed(reputation::ReputationContractProxy)
+        .get_score(agent.to_managed_address())
+        .returns(ReturnsResult)
+        .run();
+    // Default 50 - 20 hard penalty = 30
+    assert_eq!(score, 30, "Dispute should reduce score by 20, got {}", score);
 }

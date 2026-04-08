@@ -1,22 +1,10 @@
-#![no_std]
-
 multiversx_sc::imports!();
 
 #[multiversx_sc::module]
 pub trait EventsModule {
-    #[event("reputationUpdated")]
-    fn emit_reputation_updated(
-        &self,
-        #[indexed] provider: &ManagedAddress,
-        score: u64,
-        completed_tasks: u64,
-    );
+    #[event("scoreUpdated")]
+    fn emit_score_updated(&self, #[indexed] agent: &ManagedAddress, score: u64);
 
-    #[event("slashEvent")]
-    fn emit_slash_event(
-        &self,
-        #[indexed] provider: &ManagedAddress,
-        #[indexed] task_id: &ManagedBuffer,
-        reason: ManagedBuffer,
-    );
+    #[event("disputeRecorded")]
+    fn emit_dispute_recorded(&self, #[indexed] agent: &ManagedAddress, new_score: u64);
 }

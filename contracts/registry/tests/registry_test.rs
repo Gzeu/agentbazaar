@@ -1,133 +1,103 @@
-use multiversx_sc_scenario::imports::*;
-
-mod registry_proxy {
-    multiversx_sc::imports!();
-    multiversx_sc::derive_imports!();
-
-    #[multiversx_sc::proxy]
-    pub trait RegistryContractProxy {
-        #[init]
-        fn init(&self, marketplace_fee_bps: u64);
-
-        #[payable("EGLD")]
-        #[endpoint(registerService)]
-        fn register_service(
-            &self,
-            service_id: ManagedBuffer,
-            name: ManagedBuffer,
-            category: ManagedBuffer,
-            endpoint_url: ManagedBuffer,
-            pricing_model: ManagedBuffer,
-            price: BigUint,
-            metadata_uri: ManagedBuffer,
-        );
-
-        #[endpoint(updateService)]
-        fn update_service(
-            &self,
-            service_id: ManagedBuffer,
-            new_price: BigUint,
-            active: bool,
-        );
-
-        #[endpoint(deregisterService)]
-        fn deregister_service(&self, service_id: ManagedBuffer);
-
-        #[view(getService)]
-        fn get_service(
-            &self,
-            service_id: ManagedBuffer,
-        ) -> OptionalValue<registry::storage::ServiceRecord<StaticApi>>;
-
-        #[view(serviceExists)]
-        fn service_exists(&self, service_id: ManagedBuffer) -> bool;
-    }
-}
-
-const REGISTRY_ADDRESS: TestSCAddress = TestSCAddress::new("registry");
-const PROVIDER: TestAddress = TestAddress::new("provider");
-const BUYER: TestAddress = TestAddress::new("buyer");
+use multiversx_sc_scenario::*;
 
 fn world() -> ScenarioWorld {
-    let mut world = ScenarioWorld::new();
-    world.register_contract(
+    let mut blockchain = ScenarioWorld::new();
+    blockchain.set_current_dir_from_workspace("contracts/registry");
+    blockchain.register_contract(
         "mxsc:output/registry.mxsc.json",
         registry::ContractBuilder,
     );
-    world
+    blockchain
 }
 
 #[test]
-fn test_register_service() {
+fn test_register_and_get_service() {
     let mut world = world();
-    world.account(PROVIDER).nonce(1).balance(100_000_000_000_000_000u64);
+    let owner = TestAddress::new("owner");
+    let contract = TestSCAddress::new("registry");
 
+    world.account(owner).balance(BigUint::from(10u64) * BigUint::from(1_000_000_000_000_000_000u64));
     world
         .tx()
-        .from(PROVIDER)
-        .typed(registry_proxy::RegistryContractProxyMethods)
-        .init(100u64)
-        .code("mxsc:output/registry.mxsc.json")
-        .new_address(REGISTRY_ADDRESS)
+        .from(owner)
+        .typed(registry::RegistryContractProxy)
+        .init()
+        .code(MxscPath::new("output/registry.mxsc.json"))
+        .new_address(contract)
         .run();
 
+    // Register a service
     world
         .tx()
-        .from(PROVIDER)
-        .to(REGISTRY_ADDRESS)
-        .typed(registry_proxy::RegistryContractProxyMethods)
+        .from(owner)
+        .to(contract)
+        .typed(registry::RegistryContractProxy)
         .register_service(
             ManagedBuffer::from(b"svc-001"),
-            ManagedBuffer::from(b"DataFetch Pro"),
-            ManagedBuffer::from(b"data"),
-            ManagedBuffer::from(b"https://example.com"),
-            ManagedBuffer::from(b"fixed"),
-            BigUint::from(1_000_000_000_000_000u64),
-            ManagedBuffer::from(b"ipfs://meta"),
+            ManagedBuffer::from(b"Data Fetcher"),
+            ManagedBuffer::from(b"data-fetching"),
+            BigUint::from(1_000_000_000_000_000u64), // 0.001 EGLD
+            ManagedBuffer::from(b"https://provider.example.com/mcp"),
+            ManagedBuffer::from(b"QmHash123abc"),
         )
-        .egld(50_000_000_000_000_000u64)
         .run();
 
-    let exists = world
+    // Service count should be 1
+    let count: u64 = world
         .query()
-        .to(REGISTRY_ADDRESS)
-        .typed(registry_proxy::RegistryContractProxyMethods)
-        .service_exists(ManagedBuffer::from(b"svc-001"))
+        .to(contract)
+        .typed(registry::RegistryContractProxy)
+        .get_service_count()
         .returns(ReturnsResult)
         .run();
-
-    assert!(exists);
+    assert_eq!(count, 1);
 }
 
 #[test]
-fn test_register_without_stake_fails() {
+fn test_deregister_service() {
     let mut world = world();
-    world.account(PROVIDER).nonce(1).balance(100_000_000_000_000_000u64);
+    let owner = TestAddress::new("owner");
+    let contract = TestSCAddress::new("registry");
 
+    world.account(owner).balance(BigUint::from(10u64) * BigUint::from(1_000_000_000_000_000_000u64));
     world
         .tx()
-        .from(PROVIDER)
-        .typed(registry_proxy::RegistryContractProxyMethods)
-        .init(100u64)
-        .code("mxsc:output/registry.mxsc.json")
-        .new_address(REGISTRY_ADDRESS)
+        .from(owner)
+        .typed(registry::RegistryContractProxy)
+        .init()
+        .code(MxscPath::new("output/registry.mxsc.json"))
+        .new_address(contract)
         .run();
 
     world
         .tx()
-        .from(PROVIDER)
-        .to(REGISTRY_ADDRESS)
-        .typed(registry_proxy::RegistryContractProxyMethods)
+        .from(owner)
+        .to(contract)
+        .typed(registry::RegistryContractProxy)
         .register_service(
-            ManagedBuffer::from(b"svc-fail"),
-            ManagedBuffer::from(b"Fail Service"),
-            ManagedBuffer::from(b"data"),
-            ManagedBuffer::from(b"https://fail.com"),
-            ManagedBuffer::from(b"fixed"),
-            BigUint::from(0u64),
-            ManagedBuffer::from(b""),
+            ManagedBuffer::from(b"svc-001"),
+            ManagedBuffer::from(b"Data Fetcher"),
+            ManagedBuffer::from(b"data-fetching"),
+            BigUint::from(1_000_000_000_000_000u64),
+            ManagedBuffer::from(b"https://provider.example.com/mcp"),
+            ManagedBuffer::from(b"QmHash123abc"),
         )
-        .egld(0u64)
-        .with_result(ExpectError(4, "Insufficient stake: minimum 0.05 EGLD required"))
         .run();
+
+    world
+        .tx()
+        .from(owner)
+        .to(contract)
+        .typed(registry::RegistryContractProxy)
+        .deregister_service(ManagedBuffer::from(b"svc-001"))
+        .run();
+
+    let count: u64 = world
+        .query()
+        .to(contract)
+        .typed(registry::RegistryContractProxy)
+        .get_service_count()
+        .returns(ReturnsResult)
+        .run();
+    assert_eq!(count, 0);
 }

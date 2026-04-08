@@ -1,126 +1,112 @@
-use multiversx_sc_scenario::imports::*;
-
-const ESCROW_ADDRESS: TestSCAddress = TestSCAddress::new("escrow");
-const REGISTRY_ADDRESS: TestSCAddress = TestSCAddress::new("registry");
-const REPUTATION_ADDRESS: TestSCAddress = TestSCAddress::new("reputation");
-const PROVIDER: TestAddress = TestAddress::new("provider");
-const BUYER: TestAddress = TestAddress::new("buyer");
-const OWNER: TestAddress = TestAddress::new("owner");
-
-mod escrow_proxy {
-    multiversx_sc::imports!();
-    #[multiversx_sc::proxy]
-    pub trait EscrowProxy {
-        #[init]
-        fn init(&self, registry_address: ManagedAddress, reputation_address: ManagedAddress);
-
-        #[payable("EGLD")]
-        #[endpoint(createTask)]
-        fn create_task(
-            &self,
-            task_id: ManagedBuffer,
-            service_id: ManagedBuffer,
-            provider: ManagedAddress,
-            payload_hash: ManagedBuffer,
-        );
-
-        #[endpoint(releaseEscrow)]
-        fn release_escrow(&self, task_id: ManagedBuffer, proof_hash: ManagedBuffer);
-
-        #[endpoint(refundTask)]
-        fn refund_task(&self, task_id: ManagedBuffer);
-
-        #[endpoint(openDispute)]
-        fn open_dispute(&self, task_id: ManagedBuffer, reason: ManagedBuffer);
-
-        #[view(taskExists)]
-        fn task_exists(&self, task_id: ManagedBuffer) -> bool;
-    }
-}
+use multiversx_sc_scenario::*;
 
 fn world() -> ScenarioWorld {
-    let mut world = ScenarioWorld::new();
-    world.register_contract("mxsc:output/escrow.mxsc.json", escrow::ContractBuilder);
-    world
+    let mut blockchain = ScenarioWorld::new();
+    blockchain.set_current_dir_from_workspace("contracts/escrow");
+    blockchain.register_contract(
+        "mxsc:output/escrow.mxsc.json",
+        escrow::ContractBuilder,
+    );
+    blockchain
 }
 
 #[test]
 fn test_create_and_release_task() {
     let mut world = world();
-    world.account(BUYER).nonce(1).balance(1_000_000_000_000_000_000u64);
-    world.account(PROVIDER).nonce(1).balance(0u64);
+    let consumer = TestAddress::new("consumer");
+    let provider = TestAddress::new("provider");
+    let contract = TestSCAddress::new("escrow");
+    let price = BigUint::from(1_000_000_000_000_000u64); // 0.001 EGLD
 
+    world.account(consumer).balance(BigUint::from(10u64) * BigUint::from(1_000_000_000_000_000_000u64));
+    world.account(provider).balance(BigUint::zero());
     world
         .tx()
-        .from(OWNER)
-        .typed(escrow_proxy::EscrowProxyMethods)
-        .init(
-            ManagedAddress::from(REGISTRY_ADDRESS.eval_to_array()),
-            ManagedAddress::from(REPUTATION_ADDRESS.eval_to_array()),
-        )
-        .code("mxsc:output/escrow.mxsc.json")
-        .new_address(ESCROW_ADDRESS)
+        .from(consumer)
+        .typed(escrow::EscrowContractProxy)
+        .init()
+        .code(MxscPath::new("output/escrow.mxsc.json"))
+        .new_address(contract)
         .run();
 
+    // Create task with payment
     world
         .tx()
-        .from(BUYER)
-        .to(ESCROW_ADDRESS)
-        .typed(escrow_proxy::EscrowProxyMethods)
+        .from(consumer)
+        .to(contract)
+        .egld(price.clone())
+        .typed(escrow::EscrowContractProxy)
         .create_task(
-            ManagedBuffer::from(b"task-001"),
             ManagedBuffer::from(b"svc-001"),
-            ManagedAddress::from(PROVIDER.eval_to_array()),
-            ManagedBuffer::from(b"0xpayloadhash"),
+            provider.to_managed_address(),
+            ManagedBuffer::from(b"input-hash-abc"),
         )
-        .egld(1_000_000_000_000_000u64)
         .run();
 
+    // Provider releases task with proof
     world
         .tx()
-        .from(PROVIDER)
-        .to(ESCROW_ADDRESS)
-        .typed(escrow_proxy::EscrowProxyMethods)
-        .release_escrow(
-            ManagedBuffer::from(b"task-001"),
-            ManagedBuffer::from(b"0xproofhash"),
+        .from(provider)
+        .to(contract)
+        .typed(escrow::EscrowContractProxy)
+        .release_task(
+            ManagedBuffer::from(b"task-0"),
+            ManagedBuffer::from(b"result-hash-xyz"),
         )
         .run();
 
+    // Provider should have received payment
     world
-        .check_account(PROVIDER)
-        .balance(1_000_000_000_000_000u64);
+        .check_account(provider)
+        .balance(price);
 }
 
 #[test]
-fn test_create_task_zero_payment_fails() {
+fn test_refund_expired_task() {
     let mut world = world();
-    world.account(BUYER).nonce(1).balance(1_000_000_000_000_000_000u64);
+    let consumer = TestAddress::new("consumer");
+    let provider = TestAddress::new("provider");
+    let contract = TestSCAddress::new("escrow");
+    let price = BigUint::from(1_000_000_000_000_000u64);
 
+    world.account(consumer).balance(BigUint::from(10u64) * BigUint::from(1_000_000_000_000_000_000u64));
+    world.account(provider).balance(BigUint::zero());
     world
         .tx()
-        .from(OWNER)
-        .typed(escrow_proxy::EscrowProxyMethods)
-        .init(
-            ManagedAddress::from(REGISTRY_ADDRESS.eval_to_array()),
-            ManagedAddress::from(REPUTATION_ADDRESS.eval_to_array()),
-        )
-        .code("mxsc:output/escrow.mxsc.json")
-        .new_address(ESCROW_ADDRESS)
+        .from(consumer)
+        .typed(escrow::EscrowContractProxy)
+        .init()
+        .code(MxscPath::new("output/escrow.mxsc.json"))
+        .new_address(contract)
         .run();
 
     world
         .tx()
-        .from(BUYER)
-        .to(ESCROW_ADDRESS)
-        .typed(escrow_proxy::EscrowProxyMethods)
+        .from(consumer)
+        .to(contract)
+        .egld(price.clone())
+        .typed(escrow::EscrowContractProxy)
         .create_task(
-            ManagedBuffer::from(b"task-zero"),
             ManagedBuffer::from(b"svc-001"),
-            ManagedAddress::from(PROVIDER.eval_to_array()),
-            ManagedBuffer::from(b"0xhash"),
+            provider.to_managed_address(),
+            ManagedBuffer::from(b"input-hash-abc"),
         )
-        .egld(0u64)
-        .with_result(ExpectError(4, "Must attach EGLD payment"))
         .run();
+
+    // Advance time past dispute window (3601 seconds)
+    world.current_block().block_timestamp(3601u64);
+
+    // Consumer requests refund
+    world
+        .tx()
+        .from(consumer)
+        .to(contract)
+        .typed(escrow::EscrowContractProxy)
+        .refund_task(ManagedBuffer::from(b"task-0"))
+        .run();
+
+    // Consumer should have funds back (minus gas)
+    world
+        .check_account(consumer)
+        .balance_at_least(price);
 }
