@@ -2,16 +2,15 @@
 
 multiversx_sc::imports!();
 
-use crate::{ServiceEntry, storage::StorageModule};
+use crate::storage::{ServiceRecord, StorageModule};
 
 #[multiversx_sc::module]
 pub trait ViewsModule: StorageModule {
     #[view(getService)]
-    fn get_service(&self, service_id: ManagedBuffer) -> OptionalValue<ServiceEntry<Self::Api>> {
-        if self.service_by_id(&service_id).is_empty() {
-            OptionalValue::None
-        } else {
-            OptionalValue::Some(self.service_by_id(&service_id).get())
+    fn get_service(&self, service_id: ManagedBuffer) -> OptionalValue<ServiceRecord<Self::Api>> {
+        match self.services().get(&service_id) {
+            Some(r) => OptionalValue::Some(r),
+            None => OptionalValue::None,
         }
     }
 
@@ -21,31 +20,19 @@ pub trait ViewsModule: StorageModule {
         provider: ManagedAddress,
     ) -> MultiValueEncoded<ManagedBuffer> {
         let mut result = MultiValueEncoded::new();
-        for id in self.services_by_provider(&provider).iter() {
+        for id in self.provider_services(&provider).iter() {
             result.push(id);
         }
         result
     }
 
-    #[view(getServicesByCategory)]
-    fn get_services_by_category(
-        &self,
-        category: u8,
-    ) -> MultiValueEncoded<ManagedBuffer> {
-        let mut result = MultiValueEncoded::new();
-        for id in self.services_by_category(category).iter() {
-            result.push(id);
-        }
-        result
+    #[view(getMarketplaceFeeBps)]
+    fn get_marketplace_fee_bps(&self) -> u64 {
+        self.marketplace_fee_bps().get()
     }
 
-    #[view(getServiceCount)]
-    fn get_service_count(&self) -> u64 {
-        self.service_count().get()
-    }
-
-    #[view(getMinStake)]
-    fn get_min_stake(&self) -> BigUint {
-        self.min_stake().get()
+    #[view(serviceExists)]
+    fn service_exists(&self, service_id: ManagedBuffer) -> bool {
+        self.services().contains_key(&service_id)
     }
 }

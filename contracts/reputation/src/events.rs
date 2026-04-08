@@ -4,20 +4,19 @@ multiversx_sc::imports!();
 
 #[multiversx_sc::module]
 pub trait EventsModule {
-    #[event("outcomeRecorded")]
-    fn outcome_recorded_event(
+    #[event("reputationUpdated")]
+    fn emit_reputation_updated(
+        &self,
+        #[indexed] provider: &ManagedAddress,
+        score: u64,
+        completed_tasks: u64,
+    );
+
+    #[event("slashEvent")]
+    fn emit_slash_event(
         &self,
         #[indexed] provider: &ManagedAddress,
         #[indexed] task_id: &ManagedBuffer,
-        success: bool,
-        latency_ms: u64,
-        new_composite_score: u64,
-    );
-
-    #[event("agentSlashed")]
-    fn agent_slashed_event(
-        &self,
-        #[indexed] provider: &ManagedAddress,
-        reason: &ManagedBuffer,
+        reason: ManagedBuffer,
     );
 }

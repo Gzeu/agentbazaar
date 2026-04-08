@@ -4,52 +4,43 @@ multiversx_sc::imports!();
 
 #[multiversx_sc::module]
 pub trait EventsModule {
-    #[event("escrowCreated")]
-    fn escrow_created_event(
+    #[event("taskCreated")]
+    fn emit_task_created(
         &self,
-        #[indexed] consumer: &ManagedAddress,
-        #[indexed] provider: &ManagedAddress,
         #[indexed] task_id: &ManagedBuffer,
+        #[indexed] buyer: &ManagedAddress,
+        #[indexed] provider: &ManagedAddress,
         service_id: &ManagedBuffer,
         amount: &BigUint,
     );
 
-    #[event("proofSubmitted")]
-    fn proof_submitted_event(
+    #[event("taskCompleted")]
+    fn emit_task_completed(
         &self,
-        #[indexed] provider: &ManagedAddress,
         #[indexed] task_id: &ManagedBuffer,
+        #[indexed] provider: &ManagedAddress,
         proof_hash: &ManagedBuffer,
     );
 
-    #[event("escrowReleased")]
-    fn escrow_released_event(
+    #[event("taskRefunded")]
+    fn emit_task_refunded(
         &self,
-        #[indexed] provider: &ManagedAddress,
         #[indexed] task_id: &ManagedBuffer,
-        amount: &BigUint,
-        fee: &BigUint,
+        #[indexed] buyer: &ManagedAddress,
     );
 
-    #[event("escrowRefunded")]
-    fn escrow_refunded_event(
+    #[event("disputeOpened")]
+    fn emit_dispute_opened(
         &self,
-        #[indexed] consumer: &ManagedAddress,
         #[indexed] task_id: &ManagedBuffer,
-        amount: &BigUint,
-    );
-
-    #[event("disputeRaised")]
-    fn dispute_raised_event(
-        &self,
-        #[indexed] consumer: &ManagedAddress,
-        #[indexed] task_id: &ManagedBuffer,
+        #[indexed] opener: &ManagedAddress,
+        reason: &ManagedBuffer,
     );
 
     #[event("disputeResolved")]
-    fn dispute_resolved_event(
+    fn emit_dispute_resolved(
         &self,
         #[indexed] task_id: &ManagedBuffer,
-        favor_provider: bool,
+        #[indexed] winner: &ManagedAddress,
     );
 }

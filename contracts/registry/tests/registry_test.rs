@@ -1,106 +1,133 @@
 use multiversx_sc_scenario::imports::*;
 
-const REGISTRY_WASM: &str = "output/registry.wasm";
-const OWNER: TestAddress = TestAddress::new("owner");
+mod registry_proxy {
+    multiversx_sc::imports!();
+    multiversx_sc::derive_imports!();
+
+    #[multiversx_sc::proxy]
+    pub trait RegistryContractProxy {
+        #[init]
+        fn init(&self, marketplace_fee_bps: u64);
+
+        #[payable("EGLD")]
+        #[endpoint(registerService)]
+        fn register_service(
+            &self,
+            service_id: ManagedBuffer,
+            name: ManagedBuffer,
+            category: ManagedBuffer,
+            endpoint_url: ManagedBuffer,
+            pricing_model: ManagedBuffer,
+            price: BigUint,
+            metadata_uri: ManagedBuffer,
+        );
+
+        #[endpoint(updateService)]
+        fn update_service(
+            &self,
+            service_id: ManagedBuffer,
+            new_price: BigUint,
+            active: bool,
+        );
+
+        #[endpoint(deregisterService)]
+        fn deregister_service(&self, service_id: ManagedBuffer);
+
+        #[view(getService)]
+        fn get_service(
+            &self,
+            service_id: ManagedBuffer,
+        ) -> OptionalValue<registry::storage::ServiceRecord<StaticApi>>;
+
+        #[view(serviceExists)]
+        fn service_exists(&self, service_id: ManagedBuffer) -> bool;
+    }
+}
+
+const REGISTRY_ADDRESS: TestSCAddress = TestSCAddress::new("registry");
 const PROVIDER: TestAddress = TestAddress::new("provider");
-const MIN_STAKE: u64 = 50_000_000_000_000_000; // 0.05 EGLD
+const BUYER: TestAddress = TestAddress::new("buyer");
 
 fn world() -> ScenarioWorld {
     let mut world = ScenarioWorld::new();
-    world.register_contract(REGISTRY_WASM, registry::ContractBuilder);
+    world.register_contract(
+        "mxsc:output/registry.mxsc.json",
+        registry::ContractBuilder,
+    );
     world
 }
 
 #[test]
-fn test_register_and_get_service() {
+fn test_register_service() {
     let mut world = world();
+    world.account(PROVIDER).nonce(1).balance(100_000_000_000_000_000u64);
 
-    world
-        .account(OWNER)
-        .nonce(1)
-        .balance(BigUint::from(1_000_000_000_000_000_000u64));
-
-    world
-        .account(PROVIDER)
-        .nonce(1)
-        .balance(BigUint::from(1_000_000_000_000_000_000u64));
-
-    // Deploy
-    let registry_addr = world
-        .tx()
-        .from(OWNER)
-        .typed(registry::RegistryProxy)
-        .init(BigUint::from(MIN_STAKE))
-        .code(REGISTRY_WASM)
-        .new_address(TestSCAddress::new("registry"))
-        .returns(ReturnsNewAddress)
-        .run();
-
-    // Register service with stake
     world
         .tx()
         .from(PROVIDER)
-        .to(registry_addr.clone())
-        .egld(BigUint::from(MIN_STAKE))
-        .typed(registry::RegistryProxy)
+        .typed(registry_proxy::RegistryContractProxyMethods)
+        .init(100u64)
+        .code("mxsc:output/registry.mxsc.json")
+        .new_address(REGISTRY_ADDRESS)
+        .run();
+
+    world
+        .tx()
+        .from(PROVIDER)
+        .to(REGISTRY_ADDRESS)
+        .typed(registry_proxy::RegistryContractProxyMethods)
         .register_service(
             ManagedBuffer::from(b"svc-001"),
             ManagedBuffer::from(b"DataFetch Pro"),
             ManagedBuffer::from(b"data"),
             ManagedBuffer::from(b"https://example.com"),
-            registry::PricingModel::Fixed,
+            ManagedBuffer::from(b"fixed"),
             BigUint::from(1_000_000_000_000_000u64),
             ManagedBuffer::from(b"ipfs://meta"),
         )
+        .egld(50_000_000_000_000_000u64)
         .run();
 
-    // Query service
-    world
+    let exists = world
         .query()
-        .to(registry_addr.clone())
-        .typed(registry::RegistryProxy)
-        .get_service(ManagedBuffer::from(b"svc-001"))
+        .to(REGISTRY_ADDRESS)
+        .typed(registry_proxy::RegistryContractProxyMethods)
+        .service_exists(ManagedBuffer::from(b"svc-001"))
         .returns(ReturnsResult)
         .run();
+
+    assert!(exists);
 }
 
 #[test]
-fn test_register_insufficient_stake_fails() {
+fn test_register_without_stake_fails() {
     let mut world = world();
-    world
-        .account(OWNER)
-        .nonce(1)
-        .balance(BigUint::from(1_000_000_000_000_000_000u64));
-    world
-        .account(PROVIDER)
-        .nonce(1)
-        .balance(BigUint::from(1_000_000_000_000_000_000u64));
+    world.account(PROVIDER).nonce(1).balance(100_000_000_000_000_000u64);
 
-    let registry_addr = world
+    world
         .tx()
-        .from(OWNER)
-        .typed(registry::RegistryProxy)
-        .init(BigUint::from(MIN_STAKE))
-        .code(REGISTRY_WASM)
-        .new_address(TestSCAddress::new("registry"))
-        .returns(ReturnsNewAddress)
+        .from(PROVIDER)
+        .typed(registry_proxy::RegistryContractProxyMethods)
+        .init(100u64)
+        .code("mxsc:output/registry.mxsc.json")
+        .new_address(REGISTRY_ADDRESS)
         .run();
 
     world
         .tx()
         .from(PROVIDER)
-        .to(registry_addr)
-        .egld(BigUint::from(1u64)) // prea mic
-        .typed(registry::RegistryProxy)
+        .to(REGISTRY_ADDRESS)
+        .typed(registry_proxy::RegistryContractProxyMethods)
         .register_service(
-            ManagedBuffer::from(b"svc-002"),
-            ManagedBuffer::from(b"Test"),
+            ManagedBuffer::from(b"svc-fail"),
+            ManagedBuffer::from(b"Fail Service"),
             ManagedBuffer::from(b"data"),
-            ManagedBuffer::from(b"https://example.com"),
-            registry::PricingModel::Fixed,
-            BigUint::zero(),
-            ManagedBuffer::new(),
+            ManagedBuffer::from(b"https://fail.com"),
+            ManagedBuffer::from(b"fixed"),
+            BigUint::from(0u64),
+            ManagedBuffer::from(b""),
         )
-        .with_result(ExpectError(4, "Insufficient stake"))
+        .egld(0u64)
+        .with_result(ExpectError(4, "Insufficient stake: minimum 0.05 EGLD required"))
         .run();
 }

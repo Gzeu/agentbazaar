@@ -2,21 +2,19 @@
 name = "reputation"
 version = "0.1.0"
 edition = "2021"
-authors = ["George (Gzeu)"]
 
 [lib]
-name = "reputation"
 path = "src/lib.rs"
 
-[dependencies]
-multiversx-sc = "0.54"
+[features]
+default = []
 
-[dev-dependencies]
-multiversx-sc-scenario = "0.54"
+[dependencies.multiversx-sc]
+version = "0.54.0"
 
-[profile.release]
-codegen-units = 1
-opt-level = "z"
-lto = true
-debug = false
-panic = "abort"
+[dev-dependencies.multiversx-sc-scenario]
+version = "0.54.0"
+
+[[bin]]
+name = "reputation-meta"
+path = "meta/main.rs"

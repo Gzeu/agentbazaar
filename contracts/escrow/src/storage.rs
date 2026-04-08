@@ -1,23 +1,40 @@
 #![no_std]
 
 multiversx_sc::imports!();
+multiversx_sc::derive_imports!();
 
-use crate::EscrowEntry;
+#[derive(TypeAbi, TopEncode, TopDecode, NestedEncode, NestedDecode, PartialEq, Clone)]
+pub enum TaskStatus {
+    Pending,
+    Completed,
+    Refunded,
+    Disputed,
+}
+
+#[derive(TypeAbi, TopEncode, TopDecode, NestedEncode, NestedDecode, ManagedVecItem, Clone)]
+pub struct TaskRecord<M: ManagedTypeApi> {
+    pub buyer: ManagedAddress<M>,
+    pub provider: ManagedAddress<M>,
+    pub service_id: ManagedBuffer<M>,
+    pub amount: BigUint<M>,
+    pub status: TaskStatus,
+    pub payload_hash: ManagedBuffer<M>,
+    pub proof_hash: ManagedBuffer<M>,
+    pub created_at: u64,
+    pub completed_at: u64,
+}
 
 #[multiversx_sc::module]
 pub trait StorageModule {
-    #[storage_mapper("escrowByTaskId")]
-    fn escrow_by_task_id(&self, task_id: &ManagedBuffer) -> SingleValueMapper<EscrowEntry<Self::Api>>;
+    #[storage_mapper("tasks")]
+    fn tasks(&self) -> MapMapper<ManagedBuffer, TaskRecord<Self::Api>>;
 
-    #[storage_mapper("tasksByConsumer")]
-    fn tasks_by_consumer(&self, consumer: &ManagedAddress) -> UnorderedSetMapper<ManagedBuffer>;
+    #[storage_mapper("registryAddress")]
+    fn registry_address(&self) -> SingleValueMapper<ManagedAddress>;
 
-    #[storage_mapper("tasksByProvider")]
-    fn tasks_by_provider(&self, provider: &ManagedAddress) -> UnorderedSetMapper<ManagedBuffer>;
+    #[storage_mapper("reputationAddress")]
+    fn reputation_address(&self) -> SingleValueMapper<ManagedAddress>;
 
-    #[storage_mapper("marketplaceFeeBps")]
-    fn marketplace_fee_bps(&self) -> SingleValueMapper<u64>;
-
-    #[storage_mapper("feeCollector")]
-    fn fee_collector(&self) -> SingleValueMapper<ManagedAddress>;
+    #[storage_mapper("owner")]
+    fn owner(&self) -> SingleValueMapper<ManagedAddress>;
 }

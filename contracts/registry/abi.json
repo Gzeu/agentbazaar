@@ -1,12 +1,10 @@
 {
-  "name": "registry",
+  "name": "RegistryContract",
+  "constructor": {
+    "inputs": [{"name": "marketplace_fee_bps", "type": "u64"}],
+    "outputs": []
+  },
   "endpoints": [
-    {
-      "name": "init",
-      "onlyOwner": true,
-      "inputs": [{"name": "min_stake", "type": "BigUint"}],
-      "outputs": []
-    },
     {
       "name": "registerService",
       "mutability": "mutable",
@@ -15,8 +13,8 @@
         {"name": "service_id", "type": "bytes"},
         {"name": "name", "type": "bytes"},
         {"name": "category", "type": "bytes"},
-        {"name": "endpoint", "type": "bytes"},
-        {"name": "pricing_model", "type": "PricingModel"},
+        {"name": "endpoint_url", "type": "bytes"},
+        {"name": "pricing_model", "type": "bytes"},
         {"name": "price", "type": "BigUint"},
         {"name": "metadata_uri", "type": "bytes"}
       ],
@@ -39,6 +37,14 @@
       "outputs": []
     },
     {
+      "name": "setMarketplaceFee",
+      "mutability": "mutable",
+      "inputs": [{"name": "fee_bps", "type": "u64"}],
+      "outputs": []
+    }
+  ],
+  "views": [
+    {
       "name": "getService",
       "mutability": "readonly",
       "inputs": [{"name": "service_id", "type": "bytes"}],
@@ -51,55 +57,33 @@
       "outputs": [{"type": "variadic<bytes>", "multi_result": true}]
     },
     {
-      "name": "getServicesByCategory",
+      "name": "serviceExists",
       "mutability": "readonly",
-      "inputs": [{"name": "category", "type": "bytes"}],
-      "outputs": [{"type": "variadic<bytes>", "multi_result": true}]
+      "inputs": [{"name": "service_id", "type": "bytes"}],
+      "outputs": [{"type": "bool"}]
     },
     {
-      "name": "getMinStake",
+      "name": "getMarketplaceFeeBps",
       "mutability": "readonly",
       "inputs": [],
-      "outputs": [{"type": "BigUint"}]
+      "outputs": [{"type": "u64"}]
     }
   ],
   "types": {
-    "PricingModel": {
-      "type": "enum",
-      "variants": [
-        {"name": "Fixed", "discriminant": 0},
-        {"name": "Usage", "discriminant": 1},
-        {"name": "Subscription", "discriminant": 2},
-        {"name": "Quote", "discriminant": 3}
-      ]
-    },
     "ServiceRecord": {
       "type": "struct",
       "fields": [
+        {"name": "provider", "type": "Address"},
         {"name": "name", "type": "bytes"},
         {"name": "category", "type": "bytes"},
-        {"name": "endpoint", "type": "bytes"},
-        {"name": "pricing_model", "type": "PricingModel"},
+        {"name": "endpoint_url", "type": "bytes"},
+        {"name": "pricing_model", "type": "bytes"},
         {"name": "price", "type": "BigUint"},
         {"name": "metadata_uri", "type": "bytes"},
-        {"name": "provider", "type": "Address"},
         {"name": "stake", "type": "BigUint"},
         {"name": "active", "type": "bool"},
-        {"name": "created_at", "type": "u64"},
-        {"name": "updated_at", "type": "u64"}
+        {"name": "registered_at", "type": "u64"}
       ]
     }
-  },
-  "events": [
-    {
-      "identifier": "ServiceRegistered",
-      "inputs": [
-        {"name": "service_id", "type": "bytes", "indexed": true},
-        {"name": "provider", "type": "Address", "indexed": true},
-        {"name": "name", "type": "bytes"}
-      ]
-    },
-    {"identifier": "ServiceUpdated", "inputs": [{"name": "service_id", "type": "bytes", "indexed": true}]},
-    {"identifier": "ServiceDeregistered", "inputs": [{"name": "service_id", "type": "bytes", "indexed": true}]}
-  ]
+  }
 }

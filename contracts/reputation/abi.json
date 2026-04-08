@@ -1,7 +1,10 @@
 {
-  "name": "reputation",
+  "name": "ReputationContract",
+  "constructor": {
+    "inputs": [{"name": "escrow_address", "type": "Address"}],
+    "outputs": []
+  },
   "endpoints": [
-    {"name": "init", "onlyOwner": true, "inputs": [], "outputs": []},
     {
       "name": "submitCompletionProof",
       "mutability": "mutable",
@@ -13,19 +16,7 @@
       "outputs": []
     },
     {
-      "name": "slashProvider",
-      "onlyOwner": true,
-      "mutability": "mutable",
-      "inputs": [
-        {"name": "provider", "type": "Address"},
-        {"name": "task_id", "type": "bytes"},
-        {"name": "reason", "type": "bytes"}
-      ],
-      "outputs": []
-    },
-    {
-      "name": "recordFailedTask",
-      "onlyOwner": true,
+      "name": "recordFailure",
       "mutability": "mutable",
       "inputs": [
         {"name": "provider", "type": "Address"},
@@ -34,13 +25,31 @@
       "outputs": []
     },
     {
+      "name": "slashProvider",
+      "mutability": "mutable",
+      "inputs": [
+        {"name": "provider", "type": "Address"},
+        {"name": "task_id", "type": "bytes"},
+        {"name": "reason", "type": "bytes"}
+      ],
+      "outputs": []
+    }
+  ],
+  "views": [
+    {
       "name": "getReputation",
       "mutability": "readonly",
       "inputs": [{"name": "provider", "type": "Address"}],
-      "outputs": [{"type": "optional<ReputationRecord>", "multi_result": true}]
+      "outputs": [{"type": "ReputationRecord"}]
     },
     {
       "name": "getScore",
+      "mutability": "readonly",
+      "inputs": [{"name": "provider", "type": "Address"}],
+      "outputs": [{"type": "u64"}]
+    },
+    {
+      "name": "getCompletedTasks",
       "mutability": "readonly",
       "inputs": [{"name": "provider", "type": "Address"}],
       "outputs": [{"type": "u64"}]
@@ -50,33 +59,14 @@
     "ReputationRecord": {
       "type": "struct",
       "fields": [
-        {"name": "address", "type": "Address"},
         {"name": "score", "type": "u64"},
         {"name": "completed_tasks", "type": "u64"},
         {"name": "failed_tasks", "type": "u64"},
         {"name": "disputed_tasks", "type": "u64"},
-        {"name": "slash_count", "type": "u64"},
         {"name": "total_latency_ms", "type": "u64"},
-        {"name": "updated_at", "type": "u64"}
+        {"name": "last_proof_hash", "type": "bytes"},
+        {"name": "last_updated", "type": "u64"}
       ]
     }
-  },
-  "events": [
-    {
-      "identifier": "ReputationUpdated",
-      "inputs": [
-        {"name": "provider", "type": "Address", "indexed": true},
-        {"name": "task_id", "type": "bytes", "indexed": true},
-        {"name": "proof_hash", "type": "bytes"}
-      ]
-    },
-    {
-      "identifier": "ProviderSlashed",
-      "inputs": [
-        {"name": "provider", "type": "Address", "indexed": true},
-        {"name": "task_id", "type": "bytes", "indexed": true},
-        {"name": "reason", "type": "bytes"}
-      ]
-    }
-  ]
+  }
 }

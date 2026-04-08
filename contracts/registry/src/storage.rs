@@ -1,26 +1,33 @@
 #![no_std]
 
 multiversx_sc::imports!();
+multiversx_sc::derive_imports!();
 
-use crate::ServiceEntry;
+#[derive(TypeAbi, TopEncode, TopDecode, NestedEncode, NestedDecode, ManagedVecItem, Clone)]
+pub struct ServiceRecord<M: ManagedTypeApi> {
+    pub provider: ManagedAddress<M>,
+    pub name: ManagedBuffer<M>,
+    pub category: ManagedBuffer<M>,
+    pub endpoint_url: ManagedBuffer<M>,
+    pub pricing_model: ManagedBuffer<M>,
+    pub price: BigUint<M>,
+    pub metadata_uri: ManagedBuffer<M>,
+    pub stake: BigUint<M>,
+    pub active: bool,
+    pub registered_at: u64,
+}
 
 #[multiversx_sc::module]
 pub trait StorageModule {
-    #[storage_mapper("serviceById")]
-    fn service_by_id(&self, service_id: &ManagedBuffer) -> SingleValueMapper<ServiceEntry<Self::Api>>;
+    #[storage_mapper("services")]
+    fn services(&self) -> MapMapper<ManagedBuffer, ServiceRecord<Self::Api>>;
 
-    #[storage_mapper("servicesByProvider")]
-    fn services_by_provider(&self, provider: &ManagedAddress) -> UnorderedSetMapper<ManagedBuffer>;
+    #[storage_mapper("providerServices")]
+    fn provider_services(&self, provider: &ManagedAddress) -> UnorderedSetMapper<ManagedBuffer>;
 
-    #[storage_mapper("servicesByCategory")]
-    fn services_by_category(&self, category: u8) -> UnorderedSetMapper<ManagedBuffer>;
+    #[storage_mapper("marketplaceFeeBps")]
+    fn marketplace_fee_bps(&self) -> SingleValueMapper<u64>;
 
-    #[storage_mapper("serviceCount")]
-    fn service_count(&self) -> SingleValueMapper<u64>;
-
-    #[storage_mapper("minStake")]
-    fn min_stake(&self) -> SingleValueMapper<BigUint>;
-
-    #[storage_mapper("reputationContractAddress")]
-    fn reputation_contract_address(&self) -> SingleValueMapper<ManagedAddress>;
+    #[storage_mapper("owner")]
+    fn owner(&self) -> SingleValueMapper<ManagedAddress>;
 }

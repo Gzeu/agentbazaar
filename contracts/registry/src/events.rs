@@ -5,27 +5,27 @@ multiversx_sc::imports!();
 #[multiversx_sc::module]
 pub trait EventsModule {
     #[event("serviceRegistered")]
-    fn service_registered_event(
+    fn emit_service_registered(
         &self,
-        #[indexed] provider: &ManagedAddress,
         #[indexed] service_id: &ManagedBuffer,
-        descriptor_hash: &ManagedBuffer,
-        category: u8,
-        price_per_request: &BigUint,
-        stake: &BigUint,
+        #[indexed] provider: &ManagedAddress,
+        name: &ManagedBuffer,
+        category: &ManagedBuffer,
+        price: &BigUint,
     );
 
     #[event("serviceUpdated")]
-    fn service_updated_event(
+    fn emit_service_updated(
         &self,
-        #[indexed] provider: &ManagedAddress,
         #[indexed] service_id: &ManagedBuffer,
+        #[indexed] provider: &ManagedAddress,
+        active: bool,
     );
 
     #[event("serviceDeregistered")]
-    fn service_deregistered_event(
+    fn emit_service_deregistered(
         &self,
-        #[indexed] provider: &ManagedAddress,
         #[indexed] service_id: &ManagedBuffer,
+        #[indexed] provider: &ManagedAddress,
     );
 }

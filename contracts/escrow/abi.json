@@ -1,15 +1,13 @@
 {
-  "name": "escrow",
+  "name": "EscrowContract",
+  "constructor": {
+    "inputs": [
+      {"name": "registry_address", "type": "Address"},
+      {"name": "reputation_address", "type": "Address"}
+    ],
+    "outputs": []
+  },
   "endpoints": [
-    {
-      "name": "init",
-      "onlyOwner": true,
-      "inputs": [
-        {"name": "task_timeout_seconds", "type": "u64"},
-        {"name": "marketplace_fee_bps", "type": "u64"}
-      ],
-      "outputs": []
-    },
     {
       "name": "createTask",
       "mutability": "mutable",
@@ -48,14 +46,15 @@
     },
     {
       "name": "resolveDispute",
-      "onlyOwner": true,
       "mutability": "mutable",
       "inputs": [
         {"name": "task_id", "type": "bytes"},
-        {"name": "in_favor_of_buyer", "type": "bool"}
+        {"name": "winner", "type": "Address"}
       ],
       "outputs": []
-    },
+    }
+  ],
+  "views": [
     {
       "name": "getTask",
       "mutability": "readonly",
@@ -63,16 +62,16 @@
       "outputs": [{"type": "optional<TaskRecord>", "multi_result": true}]
     },
     {
-      "name": "getTaskTimeoutSeconds",
+      "name": "getTaskStatus",
       "mutability": "readonly",
-      "inputs": [],
-      "outputs": [{"type": "u64"}]
+      "inputs": [{"name": "task_id", "type": "bytes"}],
+      "outputs": [{"type": "optional<TaskStatus>", "multi_result": true}]
     },
     {
-      "name": "getMarketplaceFeeBps",
+      "name": "taskExists",
       "mutability": "readonly",
-      "inputs": [],
-      "outputs": [{"type": "u64"}]
+      "inputs": [{"name": "task_id", "type": "bytes"}],
+      "outputs": [{"type": "bool"}]
     }
   ],
   "types": {
@@ -80,47 +79,24 @@
       "type": "enum",
       "variants": [
         {"name": "Pending", "discriminant": 0},
-        {"name": "Running", "discriminant": 1},
-        {"name": "Completed", "discriminant": 2},
-        {"name": "Refunded", "discriminant": 3},
-        {"name": "Disputed", "discriminant": 4}
+        {"name": "Completed", "discriminant": 1},
+        {"name": "Refunded", "discriminant": 2},
+        {"name": "Disputed", "discriminant": 3}
       ]
     },
     "TaskRecord": {
       "type": "struct",
       "fields": [
-        {"name": "service_id", "type": "bytes"},
         {"name": "buyer", "type": "Address"},
         {"name": "provider", "type": "Address"},
+        {"name": "service_id", "type": "bytes"},
         {"name": "amount", "type": "BigUint"},
         {"name": "status", "type": "TaskStatus"},
         {"name": "payload_hash", "type": "bytes"},
         {"name": "proof_hash", "type": "bytes"},
         {"name": "created_at", "type": "u64"},
-        {"name": "timeout_at", "type": "u64"},
         {"name": "completed_at", "type": "u64"}
       ]
     }
-  },
-  "events": [
-    {
-      "identifier": "TaskCreated",
-      "inputs": [
-        {"name": "task_id", "type": "bytes", "indexed": true},
-        {"name": "buyer", "type": "Address", "indexed": true},
-        {"name": "provider", "type": "Address", "indexed": true}
-      ]
-    },
-    {
-      "identifier": "TaskCompleted",
-      "inputs": [
-        {"name": "task_id", "type": "bytes", "indexed": true},
-        {"name": "provider", "type": "Address", "indexed": true},
-        {"name": "proof_hash", "type": "bytes"}
-      ]
-    },
-    {"identifier": "TaskRefunded", "inputs": [{"name": "task_id", "type": "bytes", "indexed": true}, {"name": "buyer", "type": "Address", "indexed": true}]},
-    {"identifier": "DisputeOpened", "inputs": [{"name": "task_id", "type": "bytes", "indexed": true}, {"name": "buyer", "type": "Address", "indexed": true}, {"name": "reason", "type": "bytes"}]},
-    {"identifier": "DisputeResolved", "inputs": [{"name": "task_id", "type": "bytes", "indexed": true}, {"name": "winner", "type": "Address", "indexed": true}, {"name": "in_favor_of_buyer", "type": "bool"}]}
-  ]
+  }
 }
