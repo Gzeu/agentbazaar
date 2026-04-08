@@ -9,7 +9,6 @@ from pathlib import Path
 
 ROOT = Path(__file__).parent.parent
 DEVNET_DIR = Path(__file__).parent
-CONFIG_FILE = DEVNET_DIR / "devnet-config.json"
 ADDRESSES_FILE = DEVNET_DIR / "deployed-addresses.json"
 PEM_FILE = DEVNET_DIR / "deployer.pem"
 
@@ -30,62 +29,29 @@ def run(cmd, check=True, cwd=None):
         sys.exit(1)
     return result
 
-def build_contract(name):
-    contract_dir = ROOT / "contracts" / name
-    if not (contract_dir / "src").exists():
-        log(f"  [SKIP] {name} - director src lipsa", "yellow")
-        return False
-
-    log(f"\n[BUILD] {name}...", "blue")
-
-    # Incearca mai intai sc-meta
-    result = run(["sc-meta", "all", "build", "--path", str(contract_dir)], check=False)
-    if result.returncode == 0:
-        wasm_files = list((contract_dir / "output").glob("*.wasm"))
-        if wasm_files:
-            log(f"  [OK] sc-meta build reusit: {wasm_files[0].name}", "green")
-            return True
-
-    # Fallback: cargo build direct -> wasm in target/
-    log(f"  [INFO] sc-meta nu a mers, folosesc cargo build direct...", "yellow")
-    result = run(
-        ["cargo", "build", "--target", "wasm32-unknown-unknown", "--release",
-         "--manifest-path", str(contract_dir / "Cargo.toml")],
-        check=False
-    )
-    if result.returncode == 0:
-        wasm = find_wasm(name)
-        if wasm:
-            log(f"  [OK] cargo build reusit: {wasm}", "green")
-            return True
-    log(f"  [WARN] Build esuat pentru {name}: {result.stderr[:300]}", "yellow")
-    return False
-
 def find_wasm(name):
-    # 1. sc-meta output dir
-    sc_meta_paths = [
+    """Cauta WASM in toate locatiile posibile."""
+    candidates = [
+        # sc-meta output
         ROOT / "contracts" / name / "output" / f"{name}.wasm",
         ROOT / "contracts" / name / "output" / f"agentbazaar-{name}.wasm",
+        # cargo build workspace target
+        ROOT / "target" / "wasm32-unknown-unknown" / "release" / f"{name}.wasm",
+        # cargo build local target
+        ROOT / "contracts" / name / "target" / "wasm32-unknown-unknown" / "release" / f"{name}.wasm",
     ]
-    for p in sc_meta_paths:
+    for p in candidates:
         if p.exists():
             return str(p)
+
+    # sc-meta output glob
     output_dir = ROOT / "contracts" / name / "output"
     if output_dir.exists():
         wasm_list = list(output_dir.glob("*.wasm"))
         if wasm_list:
             return str(wasm_list[0])
 
-    # 2. cargo build target dir
-    cargo_paths = [
-        ROOT / "target" / "wasm32-unknown-unknown" / "release" / f"{name}.wasm",
-        ROOT / "contracts" / name / "target" / "wasm32-unknown-unknown" / "release" / f"{name}.wasm",
-    ]
-    for p in cargo_paths:
-        if p.exists():
-            return str(p)
-
-    # 3. Cauta recursiv in target/
+    # target glob
     target_dir = ROOT / "target" / "wasm32-unknown-unknown" / "release"
     if target_dir.exists():
         matches = list(target_dir.glob(f"{name}*.wasm"))
@@ -94,13 +60,61 @@ def find_wasm(name):
 
     return None
 
+def build_contract(name):
+    contract_dir = ROOT / "contracts" / name
+    if not (contract_dir / "src").exists():
+        log(f"  [SKIP] {name} - director src lipsa", "yellow")
+        return False
+
+    log(f"\n[BUILD] {name}...", "blue")
+
+    # Daca WASM exista deja, skip build
+    existing = find_wasm(name)
+    if existing:
+        log(f"  [OK] WASM deja exista: {existing}", "green")
+        return True
+
+    # Incearca sc-meta
+    result = run(["sc-meta", "all", "build", "--path", str(contract_dir)], check=False)
+    if result.returncode == 0:
+        wasm = find_wasm(name)
+        if wasm:
+            log(f"  [OK] sc-meta build reusit: {wasm}", "green")
+            return True
+
+    # Fallback: cargo build direct
+    log(f"  [INFO] Folosesc cargo build direct...", "yellow")
+    result = run(
+        ["cargo", "build", "--target", "wasm32-unknown-unknown", "--release",
+         "--manifest-path", str(contract_dir / "Cargo.toml")],
+        check=False
+    )
+    # returncode=0 = succes (warnings in stderr sunt normale!)
+    if result.returncode == 0:
+        wasm = find_wasm(name)
+        if wasm:
+            log(f"  [OK] cargo build reusit: {wasm}", "green")
+            return True
+        else:
+            log(f"  [WARN] Build OK dar WASM nu a fost gasit in target/", "yellow")
+            # Afiseaza unde a compilat
+            log(f"  Stdout: {result.stdout[-500:]}", "yellow")
+    else:
+        # Eroare reala de compilare
+        log(f"  [ERROR] Build esuat (returncode={result.returncode})", "red")
+        log(f"  Stderr: {result.stderr[-500:]}", "red")
+
+    return False
+
 def deploy_contract(name, args=None):
     wasm = find_wasm(name)
     if not wasm:
         log(f"  [SKIP] {name}.wasm nu exista - skip deploy", "yellow")
         return None
 
-    log(f"\n[DEPLOY] {name}... wasm={wasm}", "blue")
+    log(f"\n[DEPLOY] {name}...", "blue")
+    log(f"  wasm: {wasm}", "blue")
+
     cmd = [
         "mxpy", "contract", "deploy",
         f"--bytecode={wasm}",
@@ -170,13 +184,14 @@ def patch_env(addresses):
 def check_balance():
     import urllib.request
     if not PEM_FILE.exists():
-        log("[WARN] deployer.pem nu exista!", "yellow")
-        return
+        log("[ERROR] deployer.pem nu exista!", "red")
+        log("Ruleaza: python devnet/wallet_setup_windows.py", "yellow")
+        return False
     pem_content = PEM_FILE.read_text()
     match = re.search(r"erd1[a-z0-9]{58}", pem_content)
     if not match:
         log("[WARN] Nu pot citi adresa din PEM", "yellow")
-        return
+        return None
     address = match.group(0)
     log(f"\n[CHECK] Verificare balanta pentru {address}...", "blue")
     try:
@@ -186,7 +201,7 @@ def check_balance():
             balance_egld = int(data.get("balance", 0)) / 10**18
             log(f"  Balanta: {balance_egld:.4f} xEGLD", "green" if balance_egld > 0.1 else "red")
             if balance_egld < 0.1:
-                log(f"  [WARN] Balanta prea mica! Fondeaza la: https://devnet-wallet.multiversx.com/faucet", "yellow")
+                log(f"  [WARN] Fondeaza la: https://devnet-wallet.multiversx.com/faucet", "yellow")
                 return False
             return True
     except Exception as e:
@@ -200,7 +215,7 @@ def main():
 
     if not PEM_FILE.exists():
         log(f"\n[ERROR] {PEM_FILE} nu exista!", "red")
-        log("Ruleaza mai intai: python devnet/wallet_setup_windows.py", "yellow")
+        log("Ruleaza: python devnet/wallet_setup_windows.py", "yellow")
         sys.exit(1)
 
     ok = check_balance()
@@ -214,7 +229,7 @@ def main():
         addr = deploy_contract(name)
         if addr:
             addresses[name] = addr
-        time.sleep(2)  # evita nonce issues
+        time.sleep(2)
 
     if addresses:
         ADDRESSES_FILE.write_text(json.dumps(addresses, indent=2))
@@ -223,8 +238,8 @@ def main():
         log("\n[PATCH] Actualizez .env files...", "blue")
         patch_env(addresses)
     else:
-        log("\n[WARN] Nicio adresa deployata - verifica ca mxpy e instalat", "yellow")
-        log("  pip install mxpy", "yellow")
+        log("\n[WARN] Nicio adresa deployata", "yellow")
+        log("  Verifica: mxpy --version (pip install mxpy daca lipseste)", "yellow")
 
     log("\n" + "=" * 60, "green")
     log("  Deploy complet!", "green")
