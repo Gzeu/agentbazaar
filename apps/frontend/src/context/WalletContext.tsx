@@ -1,97 +1,93 @@
 'use client';
 
-import { createContext, useContext, useState, useCallback, useEffect, PropsWithChildren } from 'react';
+import React, { createContext, useContext, useState, useCallback, useEffect } from 'react';
 
-// ─── Types ───────────────────────────────────────────────────────────────────
-export interface WalletContextType {
+export interface WalletCtx {
   connected: boolean;
   address: string | null;
   balance: string | null;
-  network: 'devnet' | 'testnet' | 'mainnet';
+  network: 'devnet' | 'mainnet' | 'testnet';
   connecting: boolean;
-  connect: () => Promise<void>;
+  connect: () => void;
   disconnect: () => void;
-  sendTransaction: (params: TxParams) => Promise<TxResult>;
+  signAndSend: (tx: AgentTx) => Promise<string>;
 }
 
-export interface TxParams {
+export interface AgentTx {
   receiver: string;
-  value: string;     // in EGLD, e.g. "0.001"
+  value: string; // in EGLD string e.g. '0.001'
   data?: string;
   gasLimit?: number;
 }
 
-export interface TxResult {
-  txHash: string;
-  status: 'success' | 'pending' | 'fail';
-  confirmationMs: number;
-}
+const WalletContext = createContext<WalletCtx | null>(null);
 
-// ─── Context ─────────────────────────────────────────────────────────────────
-const WalletContext = createContext<WalletContextType | null>(null);
-
-export function useWalletContext(): WalletContextType {
-  const ctx = useContext(WalletContext);
-  if (!ctx) throw new Error('useWalletContext must be used inside WalletProvider');
-  return ctx;
-}
-
-// ─── Provider ─────────────────────────────────────────────────────────────────
-// This implementation uses a mock that mirrors the @multiversx/sdk-dapp interface.
-// To switch to the real sdk-dapp:
+// ---------------------------------------------------------------------------
+// This provider is a fully functional mock that mirrors the @multiversx/sdk-dapp
+// API surface. To upgrade to real wallet:
 //   1. npm install @multiversx/sdk-dapp
-//   2. Replace the connect() body with: await loginWithExtension() or loginWithWebWallet()
-//   3. Replace sendTransaction() with: sendTransactions({ transactions: [tx] })
-//   4. Wrap this Provider with <DappProvider network="devnet"> from sdk-dapp
-export function WalletProvider({ children }: PropsWithChildren) {
+//   2. Wrap with <DappProvider networkConfig={...}>
+//   3. Replace connect() with loginWithExtension() / loginWithWalletConnect()
+//   4. Replace signAndSend() with sendTransactions() from sdk-dapp
+//   5. Replace balance/address reads with useGetAccountInfo() hook
+// The rest of the app consumes WalletContext and needs ZERO changes.
+// ---------------------------------------------------------------------------
+export function WalletProvider({ children }: { children: React.ReactNode }) {
   const [connected, setConnected] = useState(false);
-  const [address, setAddress]     = useState<string | null>(null);
-  const [balance, setBalance]     = useState<string | null>(null);
+  const [address, setAddress] = useState<string | null>(null);
+  const [balance, setBalance] = useState<string | null>(null);
   const [connecting, setConnecting] = useState(false);
 
-  // Restore in-memory session (no localStorage — CSP sandbox)
+  // Restore in-memory session
   useEffect(() => {
-    if (typeof window === 'undefined') return;
-    const w = window as any;
-    if (w.__ab_addr) { setConnected(true); setAddress(w.__ab_addr); setBalance(w.__ab_bal); }
+    const w = (globalThis as any).__ab_wallet;
+    if (w?.connected) {
+      setConnected(true);
+      setAddress(w.address);
+      setBalance(w.balance);
+    }
   }, []);
 
-  const connect = useCallback(async () => {
-    if (connected || connecting) return;
+  const connect = useCallback(() => {
+    if (connecting || connected) return;
     setConnecting(true);
-    await new Promise(r => setTimeout(r, 1100)); // simulate wallet modal
-    const addr = 'erd1' + Array.from({ length: 58 }, () => '0123456789abcdef'[Math.random() * 16 | 0]).join('');
-    const bal  = (Math.random() * 12 + 0.5).toFixed(4);
-    setConnected(true); setAddress(addr); setBalance(bal); setConnecting(false);
-    if (typeof window !== 'undefined') {
-      (window as any).__ab_addr = addr;
-      (window as any).__ab_bal  = bal;
-    }
-  }, [connected, connecting]);
+    // Simulates wallet popup — replace with sdk-dapp loginWithExtension()
+    setTimeout(() => {
+      const addr = 'erd1' + Array.from({ length: 58 }, () =>
+        '0123456789abcdef'[Math.floor(Math.random() * 16)]
+      ).join('');
+      const bal = (Math.random() * 12 + 0.5).toFixed(4);
+      setConnected(true);
+      setAddress(addr);
+      setBalance(bal);
+      setConnecting(false);
+      (globalThis as any).__ab_wallet = { connected: true, address: addr, balance: bal };
+    }, 1400);
+  }, [connecting, connected]);
 
   const disconnect = useCallback(() => {
     setConnected(false); setAddress(null); setBalance(null);
-    if (typeof window !== 'undefined') {
-      delete (window as any).__ab_addr;
-      delete (window as any).__ab_bal;
-    }
+    delete (globalThis as any).__ab_wallet;
   }, []);
 
-  // Simulates a MultiversX Supernova transaction (~300ms block time)
-  const sendTransaction = useCallback(async (params: TxParams): Promise<TxResult> => {
+  const signAndSend = useCallback(async (tx: AgentTx): Promise<string> => {
     if (!connected) throw new Error('Wallet not connected');
-    const start = Date.now();
-    await new Promise(r => setTimeout(r, 300 + Math.random() * 200));
-    return {
-      txHash: '0x' + Array.from({ length: 64 }, () => '0123456789abcdef'[Math.random() * 16 | 0]).join(''),
-      status: 'success',
-      confirmationMs: Date.now() - start,
-    };
+    // Simulates on-chain TX — replace with sdk-dapp sendTransactions()
+    await new Promise(r => setTimeout(r, 900));
+    return '0x' + Array.from({ length: 64 }, () =>
+      '0123456789abcdef'[Math.floor(Math.random() * 16)]
+    ).join('');
   }, [connected]);
 
   return (
-    <WalletContext.Provider value={{ connected, address, balance, network: 'devnet', connecting, connect, disconnect, sendTransaction }}>
+    <WalletContext.Provider value={{ connected, address, balance, network: 'devnet', connecting, connect, disconnect, signAndSend }}>
       {children}
     </WalletContext.Provider>
   );
+}
+
+export function useWalletCtx(): WalletCtx {
+  const ctx = useContext(WalletContext);
+  if (!ctx) throw new Error('useWalletCtx must be used within WalletProvider');
+  return ctx;
 }

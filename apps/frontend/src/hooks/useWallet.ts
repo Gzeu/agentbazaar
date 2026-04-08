@@ -1,3 +1,3 @@
-// Re-export from WalletContext for backward compatibility
-export { useWalletContext as useWallet } from '@/context/WalletContext';
-export type { WalletContextType as WalletState, TxParams, TxResult } from '@/context/WalletContext';
+// Re-export from context for backwards compatibility
+export { useWalletCtx as useWallet } from '@/context/WalletContext';
+export type { WalletCtx as WalletState, AgentTx as MockTransaction } from '@/context/WalletContext';

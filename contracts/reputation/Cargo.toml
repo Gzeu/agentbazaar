@@ -1,7 +1,6 @@
 [package]
-name = "agent-reputation"
+name = "reputation"
 version = "0.1.0"
-authors = ["Gzeu <george@agentbazaar.xyz>"]
 edition = "2021"
 
 [lib]

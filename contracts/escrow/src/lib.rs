@@ -1,266 +1,268 @@
 #![no_std]
 
-multiversx_sc::imports!();
-multiversx_sc::derive_imports!();
+use multiversx_sc::imports::*;
 
-/// ─── Task States ─────────────────────────────────────────────────────────────
-#[derive(TypeAbi, TopEncode, TopDecode, NestedEncode, NestedDecode, PartialEq, Clone)]
-pub enum TaskState {
-    Pending,
-    Paid,
-    Running,
-    Completed,
-    Failed,
-    Disputed,
-    Refunded,
-}
-
-/// ─── Task Record ─────────────────────────────────────────────────────────────
-#[derive(TypeAbi, TopEncode, TopDecode, NestedEncode, NestedDecode, ManagedVecItem, Clone)]
-pub struct TaskRecord<M: ManagedTypeApi> {
-    pub task_id: ManagedBuffer<M>,
-    pub service_id: ManagedBuffer<M>,
-    pub consumer: ManagedAddress<M>,
-    pub provider: ManagedAddress<M>,
-    pub amount: BigUint<M>,          // locked EGLD
-    pub protocol_fee: BigUint<M>,    // platform fee deducted on release
-    pub payload_hash: ManagedBuffer<M>,   // keccak256(payload)
-    pub result_hash: ManagedBuffer<M>,    // submitted by provider on completion
-    pub state: TaskState,
-    pub created_at: u64,
-    pub deadline: u64,
-    pub mandate_id: ManagedBuffer<M>, // AP2 mandate reference
-}
-
-/// ─── Escrow Contract ─────────────────────────────────────────────────────────
+/// AgentBazaar Escrow Contract
+/// Handles task lifecycle: lock funds → execution → release/refund/dispute.
+/// Integrates with Registry (task counter) and Reputation (proof anchoring).
 #[multiversx_sc::contract]
-pub trait AgentEscrow {
+pub trait EscrowContract {
+    // ── Storage ──────────────────────────────────────────────────────────────
+
+    #[storage_mapper("tasks")]
+    fn tasks(&self) -> MapMapper<ManagedBuffer, TaskRecord<Self::Api>>;
+
+    #[storage_mapper("task_count")]
+    fn task_count(&self) -> SingleValueMapper<u64>;
+
+    #[storage_mapper("owner")]
+    fn owner(&self) -> SingleValueMapper<ManagedAddress>;
+
+    #[storage_mapper("registry_address")]
+    fn registry_address(&self) -> SingleValueMapper<ManagedAddress>;
+
+    #[storage_mapper("reputation_address")]
+    fn reputation_address(&self) -> SingleValueMapper<ManagedAddress>;
+
+    #[storage_mapper("dispute_window_seconds")]
+    fn dispute_window(&self) -> SingleValueMapper<u64>;
+
+    // ── Init ─────────────────────────────────────────────────────────────────
+
     #[init]
     fn init(
         &self,
-        registry_address: ManagedAddress,
-        reputation_address: ManagedAddress,
-        protocol_fee_bps: u64,   // e.g. 100 = 1%
-        dispute_window: u64,     // seconds after completion before auto-release
+        registry_addr: ManagedAddress,
+        reputation_addr: ManagedAddress,
+        dispute_window_seconds: u64,
     ) {
-        self.registry().set(&registry_address);
-        self.reputation().set(&reputation_address);
-        self.protocol_fee_bps().set(protocol_fee_bps);
-        self.dispute_window().set(dispute_window);
-        self.owner().set(self.blockchain().get_caller());
+        self.owner().set(&self.blockchain().get_caller());
+        self.registry_address().set(registry_addr);
+        self.reputation_address().set(reputation_addr);
+        self.dispute_window().set(dispute_window_seconds);
+        self.task_count().set(0u64);
     }
 
-    // ── Create Task + Lock Funds ──────────────────────────────────────────────
+    // ── Submit Task ──────────────────────────────────────────────────────────
+
+    /// Consumer locks EGLD for a task. Returns task_id.
     #[payable("EGLD")]
-    #[endpoint(createTask)]
-    fn create_task(
+    #[endpoint(submitTask)]
+    fn submit_task(
         &self,
         task_id: ManagedBuffer,
         service_id: ManagedBuffer,
         provider: ManagedAddress,
-        payload_hash: ManagedBuffer,
-        deadline_offset_secs: u64,  // seconds from now
-        mandate_id: ManagedBuffer,
+        deadline_timestamp: u64,
+        payload_hash: ManagedBuffer, // keccak256 of off-chain payload
     ) {
-        let amount = self.call_value().egld_value().clone_value();
-        require!(amount > BigUint::zero(), "Must send EGLD");
-        require!(!self.tasks().contains_key(&task_id), "Task ID exists");
+        let budget = self.call_value().egld();
+        require!(*budget > BigUint::zero(), "Budget must be > 0");
+        require!(!task_id.is_empty(), "Task ID required");
+        require!(!self.tasks().contains_key(&task_id), "Task ID already exists");
 
-        let caller = self.blockchain().get_caller();
+        let consumer = self.blockchain().get_caller();
         let now = self.blockchain().get_block_timestamp();
-        let fee_bps = self.protocol_fee_bps().get();
-        let fee = &amount * fee_bps / 10_000u64;
-        let net = &amount - &fee;
+        require!(deadline_timestamp > now, "Deadline must be in future");
 
         let record = TaskRecord {
             task_id: task_id.clone(),
             service_id: service_id.clone(),
-            consumer: caller.clone(),
+            consumer: consumer.clone(),
             provider: provider.clone(),
-            amount: net,
-            protocol_fee: fee,
-            payload_hash,
-            result_hash: ManagedBuffer::new(),
-            state: TaskState::Paid,
+            budget: (*budget).clone(),
+            deadline: deadline_timestamp,
             created_at: now,
-            deadline: now + deadline_offset_secs,
-            mandate_id,
+            status: TaskStatus::Pending,
+            proof_hash: ManagedBuffer::new(),
+            completed_at: 0u64,
         };
 
         self.tasks().insert(task_id.clone(), record);
-        self.consumer_tasks(&caller).insert(task_id.clone());
-        self.provider_tasks(&provider).insert(task_id.clone());
+        let count = self.task_count().get();
+        self.task_count().set(count + 1);
 
-        self.task_created_event(&task_id, &service_id, &caller, &provider, &amount, now + deadline_offset_secs);
+        self.task_submitted_event(&task_id, &service_id, &consumer, &provider, &*budget, deadline_timestamp);
     }
 
-    // ── Provider marks task as running ────────────────────────────────────────
-    #[endpoint(startTask)]
-    fn start_task(&self, task_id: ManagedBuffer) {
+    // ── Submit Proof & Release ───────────────────────────────────────────────
+
+    /// Provider submits execution proof. Funds released to provider.
+    #[endpoint(submitProofAndRelease)]
+    fn submit_proof_and_release(&self, task_id: ManagedBuffer, proof_hash: ManagedBuffer) {
         let caller = self.blockchain().get_caller();
-        let mut task = self.require_task(&task_id);
-        require!(task.provider == caller, "Not the provider");
-        require!(task.state == TaskState::Paid, "Invalid state");
-        task.state = TaskState::Running;
-        self.tasks().insert(task_id.clone(), task);
-        self.task_state_changed_event(&task_id, 2u8); // 2 = Running
+        let mut record = self.tasks().get(&task_id)
+            .unwrap_or_else(|| sc_panic!("Task not found"));
+        require!(record.provider == caller, "Only provider");
+        require!(record.status == TaskStatus::Pending, "Task not pending");
+
+        let now = self.blockchain().get_block_timestamp();
+        require!(now <= record.deadline, "Task deadline passed");
+
+        record.proof_hash = proof_hash.clone();
+        record.status = TaskStatus::Completed;
+        record.completed_at = now;
+        self.tasks().insert(task_id.clone(), record.clone());
+
+        // Release payment to provider
+        self.tx().to(&record.provider).egld(&record.budget).transfer();
+
+        // Notify registry
+        self.tx()
+            .to(self.registry_address().get())
+            .typed(RegistryProxy)
+            .increment_task_count(record.service_id.clone())
+            .sync_call();
+
+        self.task_completed_event(&task_id, &record.provider, &record.budget, &proof_hash, now);
     }
 
-    // ── Provider submits proof & requests payment ─────────────────────────────
-    #[endpoint(completeTask)]
-    fn complete_task(&self, task_id: ManagedBuffer, result_hash: ManagedBuffer) {
-        let caller = self.blockchain().get_caller();
-        let mut task = self.require_task(&task_id);
-        require!(task.provider == caller, "Not the provider");
-        require!(task.state == TaskState::Running, "Invalid state");
-        task.result_hash = result_hash;
-        task.state = TaskState::Completed;
-        self.tasks().insert(task_id.clone(), task.clone());
-        self.task_completed_event(&task_id, &task.result_hash);
-        // Auto-release after dispute_window (simplified: immediate for MVP)
-        self.do_release(&task_id);
+    // ── Refund (timeout) ─────────────────────────────────────────────────────
+
+    /// Anyone can trigger refund after deadline passes with no proof.
+    #[endpoint(refundExpired)]
+    fn refund_expired(&self, task_id: ManagedBuffer) {
+        let mut record = self.tasks().get(&task_id)
+            .unwrap_or_else(|| sc_panic!("Task not found"));
+        require!(record.status == TaskStatus::Pending, "Task not pending");
+        let now = self.blockchain().get_block_timestamp();
+        require!(now > record.deadline, "Deadline not passed yet");
+
+        record.status = TaskStatus::Refunded;
+        self.tasks().insert(task_id.clone(), record.clone());
+
+        self.tx().to(&record.consumer).egld(&record.budget).transfer();
+        self.task_refunded_event(&task_id, &record.consumer, &record.budget);
     }
 
-    // ── Consumer triggers refund (timeout or failed) ──────────────────────────
-    #[endpoint(refundTask)]
-    fn refund_task(&self, task_id: ManagedBuffer) {
+    // ── Dispute ──────────────────────────────────────────────────────────────
+
+    /// Consumer opens dispute within dispute_window after completion.
+    #[endpoint(openDispute)]
+    fn open_dispute(&self, task_id: ManagedBuffer, reason_hash: ManagedBuffer) {
         let caller = self.blockchain().get_caller();
-        let mut task = self.require_task(&task_id);
-        require!(task.consumer == caller, "Not the consumer");
+        let mut record = self.tasks().get(&task_id)
+            .unwrap_or_else(|| sc_panic!("Task not found"));
+        require!(record.consumer == caller, "Only consumer");
+        require!(record.status == TaskStatus::Completed, "Task not completed");
+
         let now = self.blockchain().get_block_timestamp();
         require!(
-            task.state == TaskState::Paid || (task.state == TaskState::Running && now > task.deadline),
-            "Cannot refund yet"
+            now <= record.completed_at + self.dispute_window().get(),
+            "Dispute window closed"
         );
-        let refund = task.amount.clone() + task.protocol_fee.clone();
-        task.state = TaskState::Refunded;
-        self.tasks().insert(task_id.clone(), task.clone());
-        self.send().direct_egld(&caller, &refund);
-        // Reputation penalty
-        self.call_reputation_penalty(&task.provider, &task.service_id);
-        self.task_refunded_event(&task_id, &refund);
+
+        record.status = TaskStatus::Disputed;
+        self.tasks().insert(task_id.clone(), record);
+        self.dispute_opened_event(&task_id, &caller, &reason_hash);
     }
 
-    // ── Internal: release payment to provider ─────────────────────────────────
-    fn do_release(&self, task_id: &ManagedBuffer) {
-        let task = self.require_task(task_id);
-        self.send().direct_egld(&task.provider, &task.amount);
-        // Collect protocol fee
-        let treasury = self.treasury().get();
-        if task.protocol_fee > BigUint::zero() {
-            self.send().direct_egld(&treasury, &task.protocol_fee);
+    // ── Resolve Dispute (owner/dao) ───────────────────────────────────────────
+
+    #[endpoint(resolveDispute)]
+    fn resolve_dispute(
+        &self, task_id: ManagedBuffer,
+        favor_consumer: bool,
+    ) {
+        require!(self.blockchain().get_caller() == self.owner().get(), "Only owner");
+        let mut record = self.tasks().get(&task_id)
+            .unwrap_or_else(|| sc_panic!("Task not found"));
+        require!(record.status == TaskStatus::Disputed, "Task not disputed");
+
+        record.status = TaskStatus::Resolved;
+        self.tasks().insert(task_id.clone(), record.clone());
+
+        if favor_consumer {
+            self.tx().to(&record.consumer).egld(&record.budget).transfer();
+        } else {
+            self.tx().to(&record.provider).egld(&record.budget).transfer();
         }
-        // Notify registry
-        self.registry_proxy(self.registry().get())
-            .increment_task_count(task.service_id.clone())
-            .execute_on_dest_context::<()>();
-        // Notify reputation
-        self.call_reputation_success(&task.provider, &task.service_id);
-        self.task_paid_out_event(task_id, &task.provider, &task.amount);
-    }
-
-    fn call_reputation_success(&self, provider: &ManagedAddress, service_id: &ManagedBuffer) {
-        self.reputation_proxy(self.reputation().get())
-            .record_success(provider.clone(), service_id.clone())
-            .execute_on_dest_context::<()>();
-    }
-
-    fn call_reputation_penalty(&self, provider: &ManagedAddress, service_id: &ManagedBuffer) {
-        self.reputation_proxy(self.reputation().get())
-            .record_failure(provider.clone(), service_id.clone())
-            .execute_on_dest_context::<()>();
-    }
-
-    fn require_task(&self, task_id: &ManagedBuffer) -> TaskRecord<Self::Api> {
-        self.tasks().get(task_id).unwrap_or_else(|| sc_panic!("Task not found"))
+        self.dispute_resolved_event(&task_id, favor_consumer);
     }
 
     // ── Views ─────────────────────────────────────────────────────────────────
+
     #[view(getTask)]
     fn get_task(&self, task_id: ManagedBuffer) -> OptionalValue<TaskRecord<Self::Api>> {
         OptionalValue::from(self.tasks().get(&task_id))
     }
 
-    #[view(getConsumerTasks)]
-    fn get_consumer_tasks(&self, consumer: ManagedAddress) -> MultiValueEncoded<ManagedBuffer> {
-        let mut out = MultiValueEncoded::new();
-        for id in self.consumer_tasks(&consumer).iter() { out.push(id); }
-        out
+    #[view(getTaskCount)]
+    fn get_task_count(&self) -> u64 {
+        self.task_count().get()
     }
-
-    // ── Admin ─────────────────────────────────────────────────────────────────
-    #[only_owner]
-    #[endpoint(setTreasury)]
-    fn set_treasury(&self, addr: ManagedAddress) { self.treasury().set(addr); }
-
-    // ── Proxies ───────────────────────────────────────────────────────────────
-    #[proxy]
-    fn registry_proxy(&self, addr: ManagedAddress) -> registry_proxy::Proxy<Self::Api>;
-
-    #[proxy]
-    fn reputation_proxy(&self, addr: ManagedAddress) -> reputation_proxy::Proxy<Self::Api>;
-
-    // ── Storage ───────────────────────────────────────────────────────────────
-    #[storage_mapper("tasks")]
-    fn tasks(&self) -> MapMapper<ManagedBuffer, TaskRecord<Self::Api>>;
-
-    #[storage_mapper("consumerTasks")]
-    fn consumer_tasks(&self, c: &ManagedAddress) -> UnorderedSetMapper<ManagedBuffer>;
-
-    #[storage_mapper("providerTasks")]
-    fn provider_tasks(&self, p: &ManagedAddress) -> UnorderedSetMapper<ManagedBuffer>;
-
-    #[storage_mapper("registry")]
-    fn registry(&self) -> SingleValueMapper<ManagedAddress>;
-
-    #[storage_mapper("reputation")]
-    fn reputation(&self) -> SingleValueMapper<ManagedAddress>;
-
-    #[storage_mapper("treasury")]
-    fn treasury(&self) -> SingleValueMapper<ManagedAddress>;
-
-    #[storage_mapper("protocolFeeBps")]
-    fn protocol_fee_bps(&self) -> SingleValueMapper<u64>;
-
-    #[storage_mapper("disputeWindow")]
-    fn dispute_window(&self) -> SingleValueMapper<u64>;
-
-    #[storage_mapper("owner")]
-    fn owner(&self) -> SingleValueMapper<ManagedAddress>;
 
     // ── Events ────────────────────────────────────────────────────────────────
-    #[event("taskCreated")]
-    fn task_created_event(&self, #[indexed] id: &ManagedBuffer, #[indexed] service: &ManagedBuffer, consumer: &ManagedAddress, provider: &ManagedAddress, amount: &BigUint, deadline: u64);
 
-    #[event("taskStateChanged")]
-    fn task_state_changed_event(&self, #[indexed] id: &ManagedBuffer, state: u8);
+    #[event("taskSubmitted")]
+    fn task_submitted_event(
+        &self, #[indexed] task_id: &ManagedBuffer, #[indexed] service_id: &ManagedBuffer,
+        #[indexed] consumer: &ManagedAddress, #[indexed] provider: &ManagedAddress,
+        budget: &BigUint, deadline: u64,
+    );
 
     #[event("taskCompleted")]
-    fn task_completed_event(&self, #[indexed] id: &ManagedBuffer, result_hash: &ManagedBuffer);
+    fn task_completed_event(
+        &self, #[indexed] task_id: &ManagedBuffer, #[indexed] provider: &ManagedAddress,
+        amount: &BigUint, proof_hash: &ManagedBuffer, timestamp: u64,
+    );
 
     #[event("taskRefunded")]
-    fn task_refunded_event(&self, #[indexed] id: &ManagedBuffer, amount: &BigUint);
+    fn task_refunded_event(
+        &self, #[indexed] task_id: &ManagedBuffer,
+        #[indexed] consumer: &ManagedAddress, amount: &BigUint,
+    );
 
-    #[event("taskPaidOut")]
-    fn task_paid_out_event(&self, #[indexed] id: &ManagedBuffer, provider: &ManagedAddress, amount: &BigUint);
+    #[event("disputeOpened")]
+    fn dispute_opened_event(
+        &self, #[indexed] task_id: &ManagedBuffer,
+        #[indexed] consumer: &ManagedAddress, reason_hash: &ManagedBuffer,
+    );
+
+    #[event("disputeResolved")]
+    fn dispute_resolved_event(&self, #[indexed] task_id: &ManagedBuffer, favor_consumer: bool);
 }
 
-mod registry_proxy {
-    multiversx_sc::imports!();
-    #[multiversx_sc::proxy]
-    pub trait RegistryProxy {
-        #[endpoint(incrementTaskCount)]
-        fn increment_task_count(&self, service_id: ManagedBuffer);
-    }
+// ── Types ──────────────────────────────────────────────────────────────────
+
+#[derive(TopEncode, TopDecode, NestedEncode, NestedDecode, TypeAbi, Clone, PartialEq)]
+pub enum TaskStatus {
+    Pending,
+    Completed,
+    Refunded,
+    Disputed,
+    Resolved,
 }
 
-mod reputation_proxy {
-    multiversx_sc::imports!();
-    #[multiversx_sc::proxy]
-    pub trait ReputationProxy {
-        #[endpoint(recordSuccess)]
-        fn record_success(&self, provider: ManagedAddress, service_id: ManagedBuffer);
-        #[endpoint(recordFailure)]
-        fn record_failure(&self, provider: ManagedAddress, service_id: ManagedBuffer);
+#[derive(TopEncode, TopDecode, NestedEncode, NestedDecode, TypeAbi, Clone)]
+pub struct TaskRecord<M: ManagedTypeApi> {
+    pub task_id: ManagedBuffer<M>,
+    pub service_id: ManagedBuffer<M>,
+    pub consumer: ManagedAddress<M>,
+    pub provider: ManagedAddress<M>,
+    pub budget: BigUint<M>,
+    pub deadline: u64,
+    pub created_at: u64,
+    pub status: TaskStatus,
+    pub proof_hash: ManagedBuffer<M>,
+    pub completed_at: u64,
+}
+
+// ── Cross-contract proxy ───────────────────────────────────────────────────
+
+mod RegistryProxy {
+    use multiversx_sc::proxy_imports::*;
+    pub struct RegistryProxyMethods<Env, From, To, Gas>
+    where Env: TxEnv, From: TxFrom<Env>, To: TxTo<Env>, Gas: TxGas<Env>
+    { _env: PhantomData<Env>, _from: PhantomData<From>, _to: PhantomData<To>, _gas: PhantomData<Gas> }
+
+    impl<Env, From, To, Gas> RegistryProxyMethods<Env, From, To, Gas>
+    where Env: TxEnv, TxEnv::Api: VMHooks, From: TxFrom<Env>, To: TxTo<Env>, Gas: TxGas<Env>
+    {
+        pub fn increment_task_count(self, service_id: ManagedBuffer<Env::Api>) ->
+            TxTypedCall<Env, From, To, NotPayable, Gas, ()>
+        {
+            self.wrapped_tx.raw_call("incrementTaskCount").argument(&service_id).original_result()
+        }
     }
 }

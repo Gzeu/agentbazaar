@@ -1,0 +1,20 @@
+{
+  "name": "@agentbazaar/sdk",
+  "version": "0.1.0",
+  "description": "AgentBazaar Agent SDK — discover, buy and sell services on MultiversX Supernova",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "scripts": {
+    "build": "tsc",
+    "dev": "tsc --watch"
+  },
+  "keywords": ["multiversx", "ai-agents", "marketplace", "ucp", "mcp", "x402", "acp", "ap2"],
+  "license": "MIT",
+  "peerDependencies": {
+    "@multiversx/sdk-core": "^14.0.0",
+    "@multiversx/sdk-network-providers": "^2.0.0"
+  },
+  "devDependencies": {
+    "typescript": "^5.4.0"
+  }
+}

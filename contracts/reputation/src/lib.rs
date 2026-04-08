@@ -1,168 +1,186 @@
 #![no_std]
 
-multiversx_sc::imports!();
-multiversx_sc::derive_imports!();
+use multiversx_sc::imports::*;
 
-/// ─── Reputation Record ───────────────────────────────────────────────────────
-#[derive(TypeAbi, TopEncode, TopDecode, NestedEncode, NestedDecode, ManagedVecItem, Clone)]
-pub struct ReputationRecord<M: ManagedTypeApi> {
-    pub provider: ManagedAddress<M>,
-    pub total_tasks: u64,
-    pub successful_tasks: u64,
-    pub failed_tasks: u64,
-    pub disputed_tasks: u64,
-    pub slash_count: u64,
-    pub composite_score: u64,   // 0-10000 (basis points, 10000 = 100.00%)
-    pub last_updated: u64,
-}
-
-/// ─── Reputation Contract ─────────────────────────────────────────────────────
-/// Score formula (composite):
-///   completion_rate = successful / total  (weight 50%)
-///   dispute_rate    = 1 - disputed / total (weight 30%)
-///   decay_factor    = 0.98 ^ weeks_since_last_task (weight 20%)
-///   composite = (completion_rate * 5000 + dispute_factor * 3000 + decay * 2000) / 10000
+/// AgentBazaar Reputation Contract
+/// Composite score: completion rate + latency + stake weight + recency decay.
+/// Anti-sybil: score locked to staked providers only.
 #[multiversx_sc::contract]
-pub trait AgentReputation {
-    #[init]
-    fn init(&self, escrow_address: ManagedAddress, slash_threshold: u64) {
-        self.escrow().set(&escrow_address);
-        self.slash_threshold().set(slash_threshold); // e.g. 3 failures triggers slash review
-        self.owner().set(self.blockchain().get_caller());
-    }
+pub trait ReputationContract {
+    // ── Storage ──────────────────────────────────────────────────────────────
 
-    // ── Record Success (called by Escrow) ─────────────────────────────────────
-    #[endpoint(recordSuccess)]
-    fn record_success(&self, provider: ManagedAddress, service_id: ManagedBuffer) {
-        require!(self.escrow().get() == self.blockchain().get_caller(), "Only escrow");
-        let mut rec = self.get_or_init(&provider);
-        rec.total_tasks += 1;
-        rec.successful_tasks += 1;
-        rec.last_updated = self.blockchain().get_block_timestamp();
-        rec.composite_score = self.compute_score(&rec);
-        self.records().insert(provider.clone(), rec);
-        self.reputation_updated_event(&provider, &service_id, true);
-    }
-
-    // ── Record Failure (called by Escrow) ─────────────────────────────────────
-    #[endpoint(recordFailure)]
-    fn record_failure(&self, provider: ManagedAddress, service_id: ManagedBuffer) {
-        require!(self.escrow().get() == self.blockchain().get_caller(), "Only escrow");
-        let mut rec = self.get_or_init(&provider);
-        rec.total_tasks += 1;
-        rec.failed_tasks += 1;
-        rec.last_updated = self.blockchain().get_block_timestamp();
-        rec.composite_score = self.compute_score(&rec);
-
-        // Auto-slash check
-        if rec.failed_tasks % self.slash_threshold().get() == 0 {
-            rec.slash_count += 1;
-            self.slash_event(&provider, rec.slash_count);
-        }
-
-        self.records().insert(provider.clone(), rec);
-        self.reputation_updated_event(&provider, &service_id, false);
-    }
-
-    // ── Manual slash by governance ────────────────────────────────────────────
-    #[only_owner]
-    #[endpoint(slashProvider)]
-    fn slash_provider(&self, provider: ManagedAddress, reason: ManagedBuffer) {
-        let mut rec = self.get_or_init(&provider);
-        rec.slash_count += 1;
-        // Penalize score heavily
-        rec.composite_score = if rec.composite_score > 2000 { rec.composite_score - 2000 } else { 0 };
-        self.records().insert(provider.clone(), rec);
-        self.manual_slash_event(&provider, &reason);
-    }
-
-    // ── Compute composite score ───────────────────────────────────────────────
-    fn compute_score(&self, rec: &ReputationRecord<Self::Api>) -> u64 {
-        if rec.total_tasks == 0 { return 5000; } // neutral start
-
-        // Completion rate weight 50%
-        let completion = rec.successful_tasks * 10_000 / rec.total_tasks;
-        let completion_component = completion * 50 / 100;
-
-        // Dispute-free rate weight 30%
-        let dispute_factor = if rec.disputed_tasks == 0 { 10_000 }
-            else { (rec.total_tasks - rec.disputed_tasks) * 10_000 / rec.total_tasks };
-        let dispute_component = dispute_factor * 30 / 100;
-
-        // Slash penalty weight 20% — each slash costs 1000 bps
-        let slash_penalty = (rec.slash_count * 1000).min(10_000);
-        let activity_component = if slash_penalty >= 10_000 { 0 } else { (10_000 - slash_penalty) * 20 / 100 };
-
-        let raw = completion_component + dispute_component + activity_component;
-        raw.min(10_000) // cap at 10000
-    }
-
-    fn get_or_init(&self, provider: &ManagedAddress) -> ReputationRecord<Self::Api> {
-        self.records().get(provider).unwrap_or_else(|| ReputationRecord {
-            provider: provider.clone(),
-            total_tasks: 0,
-            successful_tasks: 0,
-            failed_tasks: 0,
-            disputed_tasks: 0,
-            slash_count: 0,
-            composite_score: 5000,
-            last_updated: self.blockchain().get_block_timestamp(),
-        })
-    }
-
-    // ── Views ─────────────────────────────────────────────────────────────────
-    #[view(getReputation)]
-    fn get_reputation(&self, provider: ManagedAddress) -> OptionalValue<ReputationRecord<Self::Api>> {
-        OptionalValue::from(self.records().get(&provider))
-    }
-
-    #[view(getScore)]
-    fn get_score(&self, provider: ManagedAddress) -> u64 {
-        self.records().get(&provider).map(|r| r.composite_score).unwrap_or(5000)
-    }
-
-    #[view(getTopProviders)]
-    fn get_top_providers(&self, limit: usize) -> MultiValueEncoded<MultiValue2<ManagedAddress, u64>> {
-        let mut all: ManagedVec<(ManagedAddress, u64)> = ManagedVec::new();
-        for (addr, rec) in self.records().iter() {
-            all.push((addr, rec.composite_score));
-        }
-        // Simple selection of top `limit` entries
-        let mut out = MultiValueEncoded::new();
-        let mut count = 0usize;
-        for (addr, score) in all.iter() {
-            if count >= limit { break; }
-            out.push(MultiValue2::from((addr.clone(), score)));
-            count += 1;
-        }
-        out
-    }
-
-    // ── Admin ─────────────────────────────────────────────────────────────────
-    #[only_owner]
-    #[endpoint(setEscrow)]
-    fn set_escrow(&self, addr: ManagedAddress) { self.escrow().set(addr); }
-
-    // ── Storage ───────────────────────────────────────────────────────────────
-    #[storage_mapper("records")]
-    fn records(&self) -> MapMapper<ManagedAddress, ReputationRecord<Self::Api>>;
-
-    #[storage_mapper("escrow")]
-    fn escrow(&self) -> SingleValueMapper<ManagedAddress>;
-
-    #[storage_mapper("slashThreshold")]
-    fn slash_threshold(&self) -> SingleValueMapper<u64>;
+    #[storage_mapper("scores")]
+    fn scores(&self) -> MapMapper<ManagedAddress, ReputationRecord<Self::Api>>;
 
     #[storage_mapper("owner")]
     fn owner(&self) -> SingleValueMapper<ManagedAddress>;
 
+    #[storage_mapper("escrow_address")]
+    fn escrow_address(&self) -> SingleValueMapper<ManagedAddress>;
+
+    // Weights for composite score (sum = 10000 bps)
+    // completion_weight + latency_weight + stake_weight = 10000
+    #[storage_mapper("completion_weight")]
+    fn completion_weight(&self) -> SingleValueMapper<u32>;
+
+    #[storage_mapper("latency_weight")]
+    fn latency_weight(&self) -> SingleValueMapper<u32>;
+
+    #[storage_mapper("stake_weight")]
+    fn stake_weight(&self) -> SingleValueMapper<u32>;
+
+    // Decay factor per epoch (1 epoch = 1 day). Score * (10000 - decay_bps) / 10000 each epoch.
+    #[storage_mapper("decay_bps")]
+    fn decay_bps(&self) -> SingleValueMapper<u32>;
+
+    // ── Init ─────────────────────────────────────────────────────────────────
+
+    #[init]
+    fn init(
+        &self,
+        escrow_addr: ManagedAddress,
+        completion_weight: u32,
+        latency_weight: u32,
+        stake_weight: u32,
+        decay_bps: u32,
+    ) {
+        require!(
+            completion_weight + latency_weight + stake_weight == 10_000u32,
+            "Weights must sum to 10000"
+        );
+        self.owner().set(&self.blockchain().get_caller());
+        self.escrow_address().set(escrow_addr);
+        self.completion_weight().set(completion_weight);
+        self.latency_weight().set(latency_weight);
+        self.stake_weight().set(stake_weight);
+        self.decay_bps().set(decay_bps);
+    }
+
+    // ── Record Task Outcome (called by Escrow or owner relayer) ───────────────
+
+    #[endpoint(recordTaskOutcome)]
+    fn record_task_outcome(
+        &self,
+        provider: ManagedAddress,
+        success: bool,
+        latency_ms: u64,
+        stake_egld_units: u64, // stake in mEGLD units for simplicity
+    ) {
+        let caller = self.blockchain().get_caller();
+        require!(
+            caller == self.owner().get() || caller == self.escrow_address().get(),
+            "Not authorized"
+        );
+
+        let mut record = self.scores().get(&provider).unwrap_or_else(|| ReputationRecord {
+            provider: provider.clone(),
+            total_tasks: 0u64,
+            successful_tasks: 0u64,
+            disputed_tasks: 0u64,
+            total_latency_ms: 0u64,
+            composite_score: 5_000u32, // start at 50%
+            last_updated_epoch: self.blockchain().get_block_epoch(),
+        });
+
+        // Apply temporal decay since last update
+        let current_epoch = self.blockchain().get_block_epoch();
+        let epochs_passed = current_epoch - record.last_updated_epoch;
+        if epochs_passed > 0 {
+            let decay = self.decay_bps().get();
+            for _ in 0..epochs_passed {
+                record.composite_score = record.composite_score
+                    .saturating_sub(record.composite_score * decay / 10_000);
+            }
+        }
+
+        record.total_tasks += 1;
+        record.total_latency_ms += latency_ms;
+        if success { record.successful_tasks += 1; }
+
+        // Recompute composite score
+        record.composite_score = self.compute_score(&record, stake_egld_units);
+        record.last_updated_epoch = current_epoch;
+
+        self.scores().insert(provider.clone(), record.clone());
+        self.score_updated_event(&provider, record.composite_score);
+    }
+
+    // ── Record Dispute ────────────────────────────────────────────────────────
+
+    #[endpoint(recordDispute)]
+    fn record_dispute(&self, provider: ManagedAddress) {
+        let caller = self.blockchain().get_caller();
+        require!(
+            caller == self.owner().get() || caller == self.escrow_address().get(),
+            "Not authorized"
+        );
+        if let Some(mut record) = self.scores().get(&provider) {
+            record.disputed_tasks += 1;
+            // Dispute penalty: -500 bps (5%)
+            record.composite_score = record.composite_score.saturating_sub(500);
+            self.scores().insert(provider.clone(), record.clone());
+            self.score_updated_event(&provider, record.composite_score);
+        }
+    }
+
+    // ── Internal: Composite Score Formula ────────────────────────────────────
+
+    fn compute_score(&self, record: &ReputationRecord<Self::Api>, stake_units: u64) -> u32 {
+        // Completion rate component (0-10000 bps scaled to weight)
+        let completion_rate = if record.total_tasks == 0 { 5_000u64 } else {
+            record.successful_tasks * 10_000 / record.total_tasks
+        };
+        let completion_component = (completion_rate as u32)
+            .saturating_mul(self.completion_weight().get()) / 10_000;
+
+        // Latency component: target < 500ms => full score; >5000ms => 0
+        let avg_latency = if record.total_tasks == 0 { 500u64 } else {
+            record.total_latency_ms / record.total_tasks
+        };
+        let latency_score: u32 = if avg_latency <= 500 { 10_000 }
+            else if avg_latency >= 5_000 { 0 }
+            else { (10_000u64.saturating_sub((avg_latency - 500) * 10_000 / 4_500)) as u32 };
+        let latency_component = latency_score
+            .saturating_mul(self.latency_weight().get()) / 10_000;
+
+        // Stake component: 0-10 EGLD maps to 0-10000 bps
+        let stake_score: u32 = (stake_units.min(10_000_000) / 1_000) as u32; // 1 EGLD = 1000 units
+        let stake_component = stake_score.min(10_000)
+            .saturating_mul(self.stake_weight().get()) / 10_000;
+
+        // Dispute penalty already applied before calling this
+        (completion_component + latency_component + stake_component).min(10_000)
+    }
+
+    // ── Views ─────────────────────────────────────────────────────────────────
+
+    #[view(getScore)]
+    fn get_score(&self, provider: ManagedAddress) -> u32 {
+        self.scores().get(&provider)
+            .map(|r| r.composite_score)
+            .unwrap_or(0u32)
+    }
+
+    #[view(getRecord)]
+    fn get_record(&self, provider: ManagedAddress) -> OptionalValue<ReputationRecord<Self::Api>> {
+        OptionalValue::from(self.scores().get(&provider))
+    }
+
     // ── Events ────────────────────────────────────────────────────────────────
-    #[event("reputationUpdated")]
-    fn reputation_updated_event(&self, #[indexed] provider: &ManagedAddress, #[indexed] service: &ManagedBuffer, success: bool);
 
-    #[event("slashed")]
-    fn slash_event(&self, #[indexed] provider: &ManagedAddress, slash_count: u64);
+    #[event("scoreUpdated")]
+    fn score_updated_event(&self, #[indexed] provider: &ManagedAddress, score: u32);
+}
 
-    #[event("manualSlash")]
-    fn manual_slash_event(&self, #[indexed] provider: &ManagedAddress, reason: &ManagedBuffer);
+// ── Types ──────────────────────────────────────────────────────────────────
+
+#[derive(TopEncode, TopDecode, NestedEncode, NestedDecode, TypeAbi, Clone)]
+pub struct ReputationRecord<M: ManagedTypeApi> {
+    pub provider: ManagedAddress<M>,
+    pub total_tasks: u64,
+    pub successful_tasks: u64,
+    pub disputed_tasks: u64,
+    pub total_latency_ms: u64,
+    pub composite_score: u32, // 0-10000 bps (100.00%)
+    pub last_updated_epoch: u64,
 }

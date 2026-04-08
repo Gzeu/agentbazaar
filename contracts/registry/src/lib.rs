@@ -1,41 +1,46 @@
 #![no_std]
 
-multiversx_sc::imports!();
-multiversx_sc::derive_imports!();
+use multiversx_sc::imports::*;
 
-/// ─── Service Descriptor ───────────────────────────────────────────────────────
-#[derive(TypeAbi, TopEncode, TopDecode, NestedEncode, NestedDecode, ManagedVecItem, Clone)]
-pub struct ServiceDescriptor<M: ManagedTypeApi> {
-    pub id: ManagedBuffer<M>,
-    pub name: ManagedBuffer<M>,
-    pub category: ManagedBuffer<M>,       // e.g. "data-fetching"
-    pub version: ManagedBuffer<M>,
-    pub endpoint_hash: ManagedBuffer<M>,  // keccak256(endpoint_url) — URL stored off-chain
-    pub metadata_hash: ManagedBuffer<M>,  // IPFS/Arweave CID hash
-    pub pricing_model: ManagedBuffer<M>,  // "per-request" | "per-token" | "per-workflow" ...
-    pub price_per_unit: BigUint<M>,       // in EGLD denomination (10^18)
-    pub max_latency_ms: u64,
-    pub uptime_guarantee: u64,            // basis points (9900 = 99.00%)
-    pub ucp_compatible: bool,
-    pub mcp_compatible: bool,
-    pub provider: ManagedAddress<M>,
-    pub stake: BigUint<M>,
-    pub active: bool,
-    pub registered_at: u64,               // block timestamp
-    pub total_tasks: u64,
-}
-
-/// ─── Registry Contract ───────────────────────────────────────────────────────
+/// AgentBazaar Registry Contract
+/// Stores service listings, provider metadata, stake, categories.
+/// Deployed on MultiversX Supernova Devnet.
 #[multiversx_sc::contract]
-pub trait AgentRegistry {
+pub trait RegistryContract {
+    // ── Storage ──────────────────────────────────────────────────────────────
+
+    #[storage_mapper("services")]
+    fn services(&self) -> MapMapper<ManagedBuffer, ServiceDescriptor<Self::Api>>;
+
+    #[storage_mapper("provider_stake")]
+    fn provider_stake(&self) -> MapMapper<ManagedAddress, BigUint>;
+
+    #[storage_mapper("service_count")]
+    fn service_count(&self) -> SingleValueMapper<u64>;
+
+    #[storage_mapper("owner")]
+    fn owner(&self) -> SingleValueMapper<ManagedAddress>;
+
+    #[storage_mapper("min_stake")]
+    fn min_stake(&self) -> SingleValueMapper<BigUint>;
+
+    #[storage_mapper("marketplace_fee_bps")]
+    fn marketplace_fee_bps(&self) -> SingleValueMapper<u32>;
+
+    // ── Init ─────────────────────────────────────────────────────────────────
+
     #[init]
-    fn init(&self, min_stake: BigUint, protocol_fee_bps: u64) {
-        self.min_stake().set(&min_stake);
-        self.protocol_fee_bps().set(protocol_fee_bps);
-        self.owner().set(self.blockchain().get_caller());
+    fn init(&self, min_stake: BigUint, fee_bps: u32) {
+        self.owner().set(&self.blockchain().get_caller());
+        self.min_stake().set(min_stake);
+        self.marketplace_fee_bps().set(fee_bps);
+        self.service_count().set(0u64);
     }
 
-    // ── Register ─────────────────────────────────────────────────────────────
+    // ── Register Service ─────────────────────────────────────────────────────
+
+    /// Provider calls this (payable) to register a service.
+    /// Payment = stake. Must be >= min_stake.
     #[payable("EGLD")]
     #[endpoint(registerService)]
     fn register_service(
@@ -43,170 +48,141 @@ pub trait AgentRegistry {
         service_id: ManagedBuffer,
         name: ManagedBuffer,
         category: ManagedBuffer,
-        version: ManagedBuffer,
-        endpoint_hash: ManagedBuffer,
-        metadata_hash: ManagedBuffer,
+        endpoint_url: ManagedBuffer,
         pricing_model: ManagedBuffer,
         price_per_unit: BigUint,
         max_latency_ms: u64,
-        uptime_guarantee: u64,
+        uptime_guarantee_bps: u32,
         ucp_compatible: bool,
         mcp_compatible: bool,
+        metadata_hash: ManagedBuffer, // IPFS/Arweave hash of full descriptor
     ) {
-        let stake = self.call_value().egld_value().clone_value();
-        require!(stake >= self.min_stake().get(), "Stake below minimum");
-        require!(!self.services().contains_key(&service_id), "Service ID already registered");
-        require!(uptime_guarantee <= 10_000, "Uptime guarantee max 10000 bps");
+        let stake = self.call_value().egld();
+        let min = self.min_stake().get();
+        require!(*stake >= min, "Stake below minimum");
+        require!(!service_id.is_empty(), "Service ID required");
+        require!(!self.services().contains_key(&service_id), "Service ID already exists");
 
-        let caller = self.blockchain().get_caller();
+        let provider = self.blockchain().get_caller();
         let now = self.blockchain().get_block_timestamp();
 
         let descriptor = ServiceDescriptor {
-            id: service_id.clone(),
+            service_id: service_id.clone(),
             name,
-            category: category.clone(),
-            version,
-            endpoint_hash,
-            metadata_hash,
+            category,
+            provider: provider.clone(),
+            endpoint_url,
             pricing_model,
             price_per_unit,
             max_latency_ms,
-            uptime_guarantee,
+            uptime_guarantee_bps,
             ucp_compatible,
             mcp_compatible,
-            provider: caller.clone(),
-            stake: stake.clone(),
-            active: true,
+            metadata_hash,
             registered_at: now,
-            total_tasks: 0,
+            active: true,
+            total_tasks: 0u64,
         };
 
         self.services().insert(service_id.clone(), descriptor);
-        self.provider_services(&caller).insert(service_id.clone());
-        self.category_services(&category).insert(service_id.clone());
-        self.total_staked().update(|v| *v += &stake);
 
-        self.service_registered_event(&service_id, &caller, &stake, now);
+        // Add to provider stake
+        let current_stake = self.provider_stake().get(&provider).unwrap_or_default();
+        self.provider_stake().insert(provider.clone(), current_stake + &*stake);
+
+        let count = self.service_count().get();
+        self.service_count().set(count + 1);
+
+        self.service_registered_event(&service_id, &provider, &*stake, now);
     }
 
-    // ── Update ───────────────────────────────────────────────────────────────
-    #[endpoint(updateService)]
-    fn update_service(
-        &self,
-        service_id: ManagedBuffer,
-        new_price: BigUint,
-        new_max_latency_ms: u64,
-        new_metadata_hash: ManagedBuffer,
-    ) {
-        let caller = self.blockchain().get_caller();
-        let mut svc = self.services().get(&service_id).unwrap_or_else(|| sc_panic!("Not found"));
-        require!(svc.provider == caller, "Not the provider");
-        svc.price_per_unit = new_price;
-        svc.max_latency_ms = new_max_latency_ms;
-        svc.metadata_hash = new_metadata_hash;
-        self.services().insert(service_id.clone(), svc);
-        self.service_updated_event(&service_id);
-    }
+    // ── Deactivate Service ───────────────────────────────────────────────────
 
-    // ── Deactivate ───────────────────────────────────────────────────────────
     #[endpoint(deactivateService)]
     fn deactivate_service(&self, service_id: ManagedBuffer) {
         let caller = self.blockchain().get_caller();
-        let mut svc = self.services().get(&service_id).unwrap_or_else(|| sc_panic!("Not found"));
-        require!(svc.provider == caller || caller == self.owner().get(), "Unauthorized");
-        svc.active = false;
-        self.services().insert(service_id.clone(), svc);
+        let mut descriptor = self.services().get(&service_id)
+            .unwrap_or_else(|| sc_panic!("Service not found"));
+        require!(descriptor.provider == caller || self.owner().get() == caller, "Not authorized");
+        descriptor.active = false;
+        self.services().insert(service_id.clone(), descriptor);
         self.service_deactivated_event(&service_id);
     }
 
-    // ── Withdraw stake ───────────────────────────────────────────────────────
-    #[endpoint(withdrawStake)]
-    fn withdraw_stake(&self, service_id: ManagedBuffer) {
-        let caller = self.blockchain().get_caller();
-        let svc = self.services().get(&service_id).unwrap_or_else(|| sc_panic!("Not found"));
-        require!(svc.provider == caller, "Not the provider");
-        require!(!svc.active, "Deactivate first");
-        let stake = svc.stake.clone();
-        self.total_staked().update(|v| *v -= &stake);
-        self.send().direct_egld(&caller, &stake);
-        self.services().remove(&service_id);
-        self.stake_withdrawn_event(&service_id, &stake);
-    }
+    // ── Increment Task Counter (called by Escrow) ────────────────────────────
 
-    // ── Increment task count (callable by Escrow contract) ───────────────────
     #[endpoint(incrementTaskCount)]
     fn increment_task_count(&self, service_id: ManagedBuffer) {
-        require!(self.escrow_contract().get() == self.blockchain().get_caller(), "Only escrow");
-        if let Some(mut svc) = self.services().get(&service_id) {
-            svc.total_tasks += 1;
-            self.services().insert(service_id, svc);
+        if let Some(mut d) = self.services().get(&service_id) {
+            d.total_tasks += 1;
+            self.services().insert(service_id, d);
         }
     }
 
-    // ── Views ─────────────────────────────────────────────────────────────────
+    // ── Slash provider stake (called by Reputation contract) ─────────────────
+
+    #[endpoint(slashProvider)]
+    fn slash_provider(&self, provider: ManagedAddress, amount: BigUint) {
+        require!(self.owner().get() == self.blockchain().get_caller(), "Only owner");
+        let stake = self.provider_stake().get(&provider).unwrap_or_default();
+        require!(stake >= amount, "Insufficient stake to slash");
+        self.provider_stake().insert(provider.clone(), stake - &amount);
+        // Send slashed amount to owner (treasury)
+        let owner = self.owner().get();
+        self.tx().to(&owner).egld(&amount).transfer();
+        self.provider_slashed_event(&provider, &amount);
+    }
+
+    // ── Views ────────────────────────────────────────────────────────────────
+
     #[view(getService)]
     fn get_service(&self, service_id: ManagedBuffer) -> OptionalValue<ServiceDescriptor<Self::Api>> {
         OptionalValue::from(self.services().get(&service_id))
     }
 
-    #[view(getServicesByCategory)]
-    fn get_services_by_category(&self, category: ManagedBuffer) -> MultiValueEncoded<ManagedBuffer> {
-        let mut out = MultiValueEncoded::new();
-        for id in self.category_services(&category).iter() { out.push(id); }
-        out
+    #[view(getProviderStake)]
+    fn get_provider_stake(&self, provider: ManagedAddress) -> BigUint {
+        self.provider_stake().get(&provider).unwrap_or_default()
     }
 
-    #[view(getProviderServices)]
-    fn get_provider_services(&self, provider: ManagedAddress) -> MultiValueEncoded<ManagedBuffer> {
-        let mut out = MultiValueEncoded::new();
-        for id in self.provider_services(&provider).iter() { out.push(id); }
-        out
+    #[view(getServiceCount)]
+    fn get_service_count(&self) -> u64 {
+        self.service_count().get()
     }
 
-    // ── Admin ─────────────────────────────────────────────────────────────────
-    #[only_owner]
-    #[endpoint(setEscrowContract)]
-    fn set_escrow_contract(&self, addr: ManagedAddress) { self.escrow_contract().set(addr); }
+    // ── Events ───────────────────────────────────────────────────────────────
 
-    #[only_owner]
-    #[endpoint(setMinStake)]
-    fn set_min_stake(&self, amount: BigUint) { self.min_stake().set(&amount); }
-
-    // ── Storage ───────────────────────────────────────────────────────────────
-    #[storage_mapper("services")]
-    fn services(&self) -> MapMapper<ManagedBuffer, ServiceDescriptor<Self::Api>>;
-
-    #[storage_mapper("providerServices")]
-    fn provider_services(&self, provider: &ManagedAddress) -> UnorderedSetMapper<ManagedBuffer>;
-
-    #[storage_mapper("categoryServices")]
-    fn category_services(&self, category: &ManagedBuffer) -> UnorderedSetMapper<ManagedBuffer>;
-
-    #[storage_mapper("minStake")]
-    fn min_stake(&self) -> SingleValueMapper<BigUint>;
-
-    #[storage_mapper("protocolFeeBps")]
-    fn protocol_fee_bps(&self) -> SingleValueMapper<u64>;
-
-    #[storage_mapper("totalStaked")]
-    fn total_staked(&self) -> SingleValueMapper<BigUint>;
-
-    #[storage_mapper("escrowContract")]
-    fn escrow_contract(&self) -> SingleValueMapper<ManagedAddress>;
-
-    #[storage_mapper("owner")]
-    fn owner(&self) -> SingleValueMapper<ManagedAddress>;
-
-    // ── Events ────────────────────────────────────────────────────────────────
     #[event("serviceRegistered")]
-    fn service_registered_event(&self, #[indexed] id: &ManagedBuffer, #[indexed] provider: &ManagedAddress, stake: &BigUint, timestamp: u64);
-
-    #[event("serviceUpdated")]
-    fn service_updated_event(&self, #[indexed] id: &ManagedBuffer);
+    fn service_registered_event(
+        &self, #[indexed] service_id: &ManagedBuffer,
+        #[indexed] provider: &ManagedAddress,
+        stake: &BigUint, timestamp: u64,
+    );
 
     #[event("serviceDeactivated")]
-    fn service_deactivated_event(&self, #[indexed] id: &ManagedBuffer);
+    fn service_deactivated_event(&self, #[indexed] service_id: &ManagedBuffer);
 
-    #[event("stakeWithdrawn")]
-    fn stake_withdrawn_event(&self, #[indexed] id: &ManagedBuffer, amount: &BigUint);
+    #[event("providerSlashed")]
+    fn provider_slashed_event(&self, #[indexed] provider: &ManagedAddress, amount: &BigUint);
+}
+
+// ── Types ─────────────────────────────────────────────────────────────────
+
+#[derive(TopEncode, TopDecode, NestedEncode, NestedDecode, TypeAbi, Clone)]
+pub struct ServiceDescriptor<M: ManagedTypeApi> {
+    pub service_id: ManagedBuffer<M>,
+    pub name: ManagedBuffer<M>,
+    pub category: ManagedBuffer<M>,
+    pub provider: ManagedAddress<M>,
+    pub endpoint_url: ManagedBuffer<M>,
+    pub pricing_model: ManagedBuffer<M>,
+    pub price_per_unit: BigUint<M>,
+    pub max_latency_ms: u64,
+    pub uptime_guarantee_bps: u32,
+    pub ucp_compatible: bool,
+    pub mcp_compatible: bool,
+    pub metadata_hash: ManagedBuffer<M>,
+    pub registered_at: u64,
+    pub active: bool,
+    pub total_tasks: u64,
 }

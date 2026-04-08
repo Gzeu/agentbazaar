@@ -1,73 +1,79 @@
 'use client';
 
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect } from 'react';
 import Link from 'next/link';
-import { DASHBOARD_STATS, MOCK_SERVICES, MOCK_TASKS } from '@/lib/mock-data';
-import { useWalletContext } from '@/context/WalletContext';
+import { MOCK_TASKS, MOCK_SERVICES, DASHBOARD_STATS } from '@/lib/mock-data';
 
-// ── Mini sparkline (SVG, no deps) ─────────────────────────────────────────────
+// ── Sparkline SVG ──────────────────────────────────────────────────────────
 function Sparkline({ data, color = '#14b8a6' }: { data: number[]; color?: string }) {
   const max = Math.max(...data);
   const min = Math.min(...data);
-  const W = 120, H = 36;
+  const w = 120; const h = 32;
   const pts = data.map((v, i) => {
-    const x = (i / (data.length - 1)) * W;
-    const y = H - ((v - min) / (max - min || 1)) * H;
+    const x = (i / (data.length - 1)) * w;
+    const y = h - ((v - min) / (max - min + 1)) * h;
     return `${x},${y}`;
   }).join(' ');
-  const fill = `${pts} ${W},${H} 0,${H}`;
+  const area = `0,${h} ` + pts + ` ${w},${h}`;
   return (
-    <svg width={W} height={H} viewBox={`0 0 ${W} ${H}`} fill="none">
-      <polygon points={fill} fill={color} opacity="0.12" />
-      <polyline points={pts} stroke={color} strokeWidth="2" fill="none" strokeLinecap="round" strokeLinejoin="round" />
+    <svg width={w} height={h} viewBox={`0 0 ${w} ${h}`} className="overflow-visible">
+      <defs>
+        <linearGradient id="sg" x1="0" y1="0" x2="0" y2="1">
+          <stop offset="0%" stopColor={color} stopOpacity="0.3" />
+          <stop offset="100%" stopColor={color} stopOpacity="0" />
+        </linearGradient>
+      </defs>
+      <polygon points={area} fill="url(#sg)" />
+      <polyline points={pts} fill="none" stroke={color} strokeWidth="1.5" strokeLinejoin="round" strokeLinecap="round" />
+      <circle cx={(data.length - 1) / (data.length - 1) * w} cy={h - ((data[data.length-1] - min) / (max - min + 1)) * h} r="3" fill={color} />
     </svg>
   );
 }
 
-// ── Donut chart (SVG, no deps) ────────────────────────────────────────────────
+// ── Donut Chart SVG ────────────────────────────────────────────────────────
 function DonutChart({ data }: { data: { name: string; value: number; color: string }[] }) {
-  const R = 56, r = 36, cx = 70, cy = 70;
   const total = data.reduce((s, d) => s + d.value, 0);
-  let angle = -Math.PI / 2;
+  const r = 54; const cx = 70; const cy = 70;
+  let startAngle = -90;
   const slices = data.map(d => {
-    const sweep = (d.value / total) * 2 * Math.PI;
-    const x1 = cx + R * Math.cos(angle);
-    const y1 = cy + R * Math.sin(angle);
-    angle += sweep;
-    const x2 = cx + R * Math.cos(angle);
-    const y2 = cy + R * Math.sin(angle);
-    const xi1 = cx + r * Math.cos(angle - sweep);
-    const yi1 = cy + r * Math.sin(angle - sweep);
-    const xi2 = cx + r * Math.cos(angle);
-    const yi2 = cy + r * Math.sin(angle);
-    const large = sweep > Math.PI ? 1 : 0;
-    return { ...d, path: `M${x1},${y1} A${R},${R} 0 ${large},1 ${x2},${y2} L${xi2},${yi2} A${r},${r} 0 ${large},0 ${xi1},${yi1} Z` };
+    const angle = (d.value / total) * 360;
+    const start = startAngle;
+    startAngle += angle;
+    const toRad = (deg: number) => (deg * Math.PI) / 180;
+    const x1 = cx + r * Math.cos(toRad(start));
+    const y1 = cy + r * Math.sin(toRad(start));
+    const x2 = cx + r * Math.cos(toRad(start + angle));
+    const y2 = cy + r * Math.sin(toRad(start + angle));
+    const large = angle > 180 ? 1 : 0;
+    return { ...d, path: `M ${cx} ${cy} L ${x1} ${y1} A ${r} ${r} 0 ${large} 1 ${x2} ${y2} Z` };
   });
   return (
     <svg width="140" height="140" viewBox="0 0 140 140">
-      {slices.map((s, i) => <path key={i} d={s.path} fill={s.color} opacity="0.9" />)}
-      <circle cx={cx} cy={cy} r={r - 4} fill="#131720" />
-      <text x={cx} y={cy - 6} textAnchor="middle" fill="#e2e8f0" fontSize="14" fontWeight="bold">6</text>
-      <text x={cx} y={cy + 10} textAnchor="middle" fill="#64748b" fontSize="9">categorii</text>
+      <circle cx={cx} cy={cy} r={r} fill="#1a2030" />
+      {slices.map((s, i) => <path key={i} d={s.path} fill={s.color} opacity="0.85" />)}
+      <circle cx={cx} cy={cy} r={r * 0.6} fill="#131720" />
+      <text x={cx} y={cy - 6} textAnchor="middle" fill="#e2e8f0" fontSize="18" fontWeight="bold" fontFamily="monospace">{total}%</text>
+      <text x={cx} y={cy + 12} textAnchor="middle" fill="#64748b" fontSize="10" fontFamily="monospace">total</text>
     </svg>
   );
 }
 
-// ── Bar chart (SVG, no deps) ──────────────────────────────────────────────────
+// ── Bar Chart SVG ──────────────────────────────────────────────────────────
 function BarChart({ data, color = '#14b8a6' }: { data: number[]; color?: string }) {
   const max = Math.max(...data);
-  const W = 280, H = 80;
-  const barW = W / data.length - 4;
+  const w = 280; const h = 80;
+  const barW = w / data.length - 4;
   return (
-    <svg width={W} height={H} viewBox={`0 0 ${W} ${H}`}>
+    <svg width="100%" height={h} viewBox={`0 0 ${w} ${h}`} preserveAspectRatio="none">
       {data.map((v, i) => {
-        const h = (v / max) * (H - 8);
-        const x = i * (W / data.length) + 2;
-        const y = H - h;
+        const bh = (v / max) * (h - 8);
+        const x = i * (w / data.length) + 2;
+        const y = h - bh;
+        const isLast = i === data.length - 1;
         return (
           <g key={i}>
-            <rect x={x} y={y} width={barW} height={h} rx="3" fill={color} opacity="0.25" />
-            <rect x={x} y={y} width={barW} height="2" rx="1" fill={color} />
+            <rect x={x} y={y} width={barW} height={bh} rx="3"
+              fill={isLast ? color : color + '66'} />
           </g>
         );
       })}
@@ -75,98 +81,163 @@ function BarChart({ data, color = '#14b8a6' }: { data: number[]; color?: string 
   );
 }
 
-// ── Counter animation ────────────────────────────────────────────────────────
-function AnimatedNumber({ target, suffix = '', prefix = '' }: { target: number; suffix?: string; prefix?: string }) {
-  const [val, setVal] = useState(0);
-  useEffect(() => {
-    let start = 0;
-    const step = target / 40;
-    const t = setInterval(() => {
-      start += step;
-      if (start >= target) { setVal(target); clearInterval(t); }
-      else setVal(Math.floor(start));
-    }, 30);
-    return () => clearInterval(t);
-  }, [target]);
-  return <>{prefix}{val.toLocaleString()}{suffix}</>;
-}
-
-export default function DashboardPage() {
-  const { connected, address, balance } = useWalletContext();
-  const days = ['Lun', 'Mar', 'Mie', 'Joi', 'Vin', 'Sâm', 'Dum'];
-
+// ── Protocol Health ────────────────────────────────────────────────────────
+function ProtocolHealth() {
+  const protocols = [
+    { name: 'UCP', status: 'online', latency: 12 },
+    { name: 'ACP', status: 'online', latency: 8 },
+    { name: 'AP2', status: 'online', latency: 15 },
+    { name: 'x402', status: 'online', latency: 6 },
+    { name: 'MCP', status: 'degraded', latency: 145 },
+  ];
   return (
-    <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-10 animate-fade-in">
-      {/* Header */}
-      <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 mb-8">
-        <div>
-          <h1 className="text-2xl font-bold text-dark-text">Dashboard</h1>
-          <p className="text-dark-muted text-sm mt-0.5">AgentBazaar Analytics · MultiversX Supernova Devnet</p>
-        </div>
-        {connected && address && (
-          <div className="flex items-center gap-2 px-3 py-2 bg-dark-surface2 border border-dark-border rounded-xl">
-            <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
-            <span className="text-xs font-mono text-brand-400">{address.slice(0,8)}...{address.slice(-6)}</span>
-            <span className="text-xs font-mono text-dark-muted">{Number(balance).toFixed(2)} EGLD</span>
-          </div>
-        )}
-      </div>
-
-      {/* KPI row */}
-      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3 mb-8">
-        {[
-          { label: 'Servicii Active', value: DASHBOARD_STATS.totalServices, suffix: '', color: 'text-brand-400' },
-          { label: 'Agenți Activi',   value: DASHBOARD_STATS.activeAgents,  suffix: '', color: 'text-indigo-400' },
-          { label: 'Tasks Azi',       value: DASHBOARD_STATS.tasksToday,    suffix: '', color: 'text-purple-400' },
-          { label: 'Latență Medie',   value: DASHBOARD_STATS.avgLatency,    suffix: 'ms', color: 'text-amber-400' },
-          { label: 'Success Rate',    value: DASHBOARD_STATS.successRate * 10, suffix: '%', color: 'text-emerald-400' },
-          { label: 'Volume Total',    value: 1245, suffix: ' EGLD', color: 'text-teal-400' },
-        ].map(({ label, value, suffix, color }) => (
-          <div key={label} className="stat-card">
-            <p className={`text-xl font-bold font-mono ${color}`}>
-              <AnimatedNumber target={value} suffix={suffix} />
-            </p>
-            <p className="text-xs text-dark-muted mt-1">{label}</p>
+    <div className="card">
+      <h3 className="section-heading mb-4">Protocol Health</h3>
+      <div className="space-y-2">
+        {protocols.map(p => (
+          <div key={p.name} className="flex items-center justify-between py-2 border-b border-dark-border last:border-0">
+            <div className="flex items-center gap-2">
+              <span className={`w-2 h-2 rounded-full ${
+                p.status === 'online' ? 'bg-emerald-400 animate-pulse-slow'
+                : p.status === 'degraded' ? 'bg-amber-400 animate-pulse'
+                : 'bg-red-400'
+              }`} />
+              <span className="text-sm font-mono text-dark-text">{p.name}</span>
+            </div>
+            <div className="flex items-center gap-3">
+              <span className={`text-xs font-mono ${
+                p.latency < 50 ? 'text-emerald-400'
+                : p.latency < 100 ? 'text-amber-400' : 'text-red-400'
+              }`}>{p.latency}ms</span>
+              <span className={`badge border text-xs ${
+                p.status === 'online' ? 'text-emerald-400 bg-emerald-500/10 border-emerald-500/20'
+                : 'text-amber-400 bg-amber-500/10 border-amber-500/20'
+              }`}>{p.status}</span>
+            </div>
           </div>
         ))}
       </div>
+    </div>
+  );
+}
 
-      {/* Charts row */}
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 mb-8">
-        {/* Weekly volume bar */}
-        <div className="card lg:col-span-2">
+// ── KPI Card ───────────────────────────────────────────────────────────────
+function KPICard({ label, value, sub, trend, color = 'text-dark-text', sparkData }: {
+  label: string; value: string; sub?: string; trend?: string; color?: string; sparkData?: number[];
+}) {
+  return (
+    <div className="stat-card flex flex-col gap-2">
+      <p className="text-xs text-dark-muted uppercase tracking-wider">{label}</p>
+      <div className="flex items-end justify-between">
+        <p className={`text-2xl font-bold font-mono ${color}`}>{value}</p>
+        {sparkData && <Sparkline data={sparkData} color={color.includes('brand') || color.includes('teal') ? '#14b8a6' : '#10b981'} />}
+      </div>
+      {sub && <p className="text-xs text-dark-muted">{sub}</p>}
+      {trend && <p className="text-xs text-emerald-400">↑ {trend}</p>}
+    </div>
+  );
+}
+
+// ── Live counter ───────────────────────────────────────────────────────────
+function LiveCounter({ from, to, duration = 2000 }: { from: number; to: number; duration?: number }) {
+  const [val, setVal] = useState(from);
+  useEffect(() => {
+    const steps = 40;
+    const step = (to - from) / steps;
+    const delay = duration / steps;
+    let current = from;
+    const timer = setInterval(() => {
+      current += step;
+      if (current >= to) { setVal(to); clearInterval(timer); return; }
+      setVal(Math.floor(current));
+    }, delay);
+    return () => clearInterval(timer);
+  }, [from, to, duration]);
+  return <>{val.toLocaleString()}</>;
+}
+
+// ── Main Dashboard ─────────────────────────────────────────────────────────
+export default function DashboardPage() {
+  const recentTasks = MOCK_TASKS.slice(0, 4);
+  const topServices = MOCK_SERVICES.slice(0, 3);
+  const STATUS_COLORS: Record<string, string> = {
+    pending: 'text-amber-400', running: 'text-purple-400',
+    completed: 'text-emerald-400', failed: 'text-red-400',
+  };
+
+  return (
+    <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8 animate-fade-in">
+      {/* Header */}
+      <div className="flex items-center justify-between mb-8">
+        <div>
+          <h1 className="text-2xl font-bold text-dark-text">Dashboard</h1>
+          <p className="text-dark-muted text-sm mt-0.5">AgentBazaar • MultiversX Supernova Devnet</p>
+        </div>
+        <div className="flex items-center gap-2 text-xs font-mono text-emerald-400 bg-emerald-500/10 border border-emerald-500/20 rounded-full px-3 py-1.5">
+          <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
+          Live
+        </div>
+      </div>
+
+      {/* KPI Row */}
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
+        <KPICard label="Task-uri Azi" value={DASHBOARD_STATS.tasksToday.toLocaleString()}
+          trend="+12% vs ieri" color="text-brand-400" sparkData={DASHBOARD_STATS.weeklyVolume} />
+        <KPICard label="Volume EGLD" value={DASHBOARD_STATS.totalVolume}
+          sub="all time" color="text-emerald-400" sparkData={[...DASHBOARD_STATS.weeklyVolume].reverse()} />
+        <KPICard label="Rata Succes" value={DASHBOARD_STATS.successRate + '%'}
+          sub="ultimele 7 zile" color="text-teal-400" />
+        <KPICard label="Latență Medie" value={DASHBOARD_STATS.avgLatency + 'ms'}
+          sub="p50 global" color="text-purple-400" />
+      </div>
+
+      {/* Live Stats */}
+      <div className="grid grid-cols-3 gap-4 mb-6">
+        <div className="stat-card text-center">
+          <p className="text-xs text-dark-muted uppercase tracking-wider mb-1">Servicii Active</p>
+          <p className="text-3xl font-bold font-mono text-brand-400">
+            <LiveCounter from={0} to={DASHBOARD_STATS.totalServices} />
+          </p>
+        </div>
+        <div className="stat-card text-center">
+          <p className="text-xs text-dark-muted uppercase tracking-wider mb-1">Agenți Activi</p>
+          <p className="text-3xl font-bold font-mono text-emerald-400">
+            <LiveCounter from={0} to={DASHBOARD_STATS.activeAgents} duration={1500} />
+          </p>
+        </div>
+        <div className="stat-card text-center">
+          <p className="text-xs text-dark-muted uppercase tracking-wider mb-1">Block Time</p>
+          <p className="text-3xl font-bold font-mono text-purple-400">~300ms</p>
+        </div>
+      </div>
+
+      {/* Charts + Protocol Health */}
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 mb-6">
+        {/* Weekly Volume Bar */}
+        <div className="card col-span-1 lg:col-span-2">
           <div className="flex items-center justify-between mb-4">
-            <div>
-              <h3 className="section-heading">Volum Săptămânal</h3>
-              <p className="text-xs text-dark-muted mt-0.5">Tasks executate / zi (ultimele 7 zile)</p>
-            </div>
-            <span className="badge bg-emerald-500/10 border border-emerald-500/20 text-emerald-400 text-xs">↑ +16%</span>
+            <h3 className="section-heading">Volume Săptămânal (Tasks)</h3>
+            <span className="text-xs text-emerald-400 font-mono">+{Math.round((DASHBOARD_STATS.weeklyVolume[6] / DASHBOARD_STATS.weeklyVolume[0] - 1) * 100)}% WoW</span>
           </div>
-          <BarChart data={DASHBOARD_STATS.weeklyVolume} color="#14b8a6" />
+          <BarChart data={DASHBOARD_STATS.weeklyVolume} />
           <div className="flex justify-between mt-2">
-            {days.map(d => <span key={d} className="text-xs text-dark-muted font-mono">{d}</span>)}
-          </div>
-          <div className="flex items-end justify-between mt-4 pt-4 border-t border-dark-border">
-            {DASHBOARD_STATS.weeklyVolume.map((v, i) => (
-              <div key={i} className="text-center">
-                <p className="text-xs font-mono text-dark-text">{v}</p>
-              </div>
+            {['L', 'M', 'M', 'J', 'V', 'S', 'D'].map((d, i) => (
+              <span key={i} className="text-xs text-dark-muted flex-1 text-center">{d}</span>
             ))}
           </div>
         </div>
 
-        {/* Donut category breakdown */}
-        <div className="card">
-          <h3 className="section-heading mb-1">Categorii</h3>
-          <p className="text-xs text-dark-muted mb-4">Distribuție pe tip serviciu</p>
+        {/* Category Donut */}
+        <div className="card flex flex-col">
+          <h3 className="section-heading mb-4">Categorii</h3>
           <div className="flex items-center gap-4">
             <DonutChart data={DASHBOARD_STATS.categoryBreakdown} />
-            <div className="space-y-2 flex-1">
+            <div className="space-y-1.5">
               {DASHBOARD_STATS.categoryBreakdown.map(c => (
                 <div key={c.name} className="flex items-center gap-2">
-                  <span className="w-2 h-2 rounded-full flex-shrink-0" style={{ background: c.color }} />
-                  <span className="text-xs text-dark-muted truncate flex-1">{c.name}</span>
-                  <span className="text-xs font-mono text-dark-text">{c.value}%</span>
+                  <span className="w-2.5 h-2.5 rounded-sm flex-shrink-0" style={{ background: c.color }} />
+                  <span className="text-xs text-dark-muted">{c.name}</span>
+                  <span className="text-xs font-mono text-dark-text ml-auto">{c.value}%</span>
                 </div>
               ))}
             </div>
@@ -174,97 +245,62 @@ export default function DashboardPage() {
         </div>
       </div>
 
-      {/* Sparklines row */}
-      <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 mb-8">
-        {[
-          { label: 'Data Fetching', data: [420, 580, 620, 540, 700, 820, 910], color: '#14b8a6' },
-          { label: 'Compute',       data: [120, 200, 180, 260, 340, 380, 420], color: '#6366f1' },
-          { label: 'Orchestration', data: [40, 80, 100, 120, 180, 200, 280], color: '#f59e0b' },
-          { label: 'Compliance',    data: [20, 40, 35, 60, 70, 90, 110], color: '#ef4444' },
-        ].map(({ label, data, color }) => (
-          <div key={label} className="card">
-            <p className="text-xs text-dark-muted mb-2">{label}</p>
-            <Sparkline data={data} color={color} />
-            <p className="text-sm font-bold font-mono mt-2" style={{ color }}>
-              <AnimatedNumber target={data[data.length - 1]} suffix=" tasks" />
-            </p>
-          </div>
-        ))}
-      </div>
-
-      {/* Tables row */}
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-        {/* Top services */}
-        <div className="card overflow-hidden p-0">
-          <div className="px-5 py-4 border-b border-dark-border flex items-center justify-between">
-            <h3 className="section-heading">Top Servicii</h3>
-            <Link href="/" className="text-xs text-brand-400 hover:text-brand-300">Vezi toate →</Link>
-          </div>
-          <div className="divide-y divide-dark-border">
-            {MOCK_SERVICES.slice(0, 5).map((s, i) => (
-              <Link key={s.id} href={`/services/${s.id}`} className="flex items-center gap-3 px-5 py-3 hover:bg-dark-surface2/50 transition-colors group">
-                <span className="text-sm font-bold text-dark-muted w-5">#{i + 1}</span>
-                <div className="flex-1 min-w-0">
-                  <p className="text-sm font-medium text-dark-text group-hover:text-brand-400 transition-colors truncate">{s.name}</p>
-                  <p className="text-xs text-dark-muted">{(s.totalTasks / 1000).toFixed(1)}K tasks · {s.category}</p>
-                </div>
-                <div className="text-right">
-                  <p className="text-xs font-mono text-dark-text">{s.priceAmount} EGLD</p>
-                  <p className="text-xs font-mono text-emerald-400">{(s.reputationScore / 100).toFixed(1)}%</p>
-                </div>
-              </Link>
-            ))}
-          </div>
-        </div>
-
-        {/* Recent tasks */}
-        <div className="card overflow-hidden p-0">
-          <div className="px-5 py-4 border-b border-dark-border flex items-center justify-between">
-            <h3 className="section-heading">Tasks Recente</h3>
+      {/* Bottom Grid */}
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
+        {/* Recent Tasks */}
+        <div className="card col-span-1 lg:col-span-2">
+          <div className="flex items-center justify-between mb-4">
+            <h3 className="section-heading">Task-uri Recente</h3>
             <Link href="/tasks" className="text-xs text-brand-400 hover:text-brand-300">Vezi toate →</Link>
           </div>
-          <div className="divide-y divide-dark-border">
-            {MOCK_TASKS.map(t => {
+          <div className="space-y-2">
+            {recentTasks.map(t => {
               const svc = MOCK_SERVICES.find(s => s.id === t.serviceId);
-              const STATUS_DOT: Record<string, string> = {
-                pending: 'bg-amber-400', running: 'bg-purple-400 animate-pulse',
-                completed: 'bg-emerald-400', failed: 'bg-red-400',
-              };
               return (
-                <Link key={t.id} href={`/tasks/${t.id}`} className="flex items-center gap-3 px-5 py-3 hover:bg-dark-surface2/50 transition-colors group">
-                  <span className={`w-2 h-2 rounded-full flex-shrink-0 ${STATUS_DOT[t.status] ?? 'bg-dark-border'}`} />
-                  <div className="flex-1 min-w-0">
-                    <p className="text-sm font-medium text-dark-text group-hover:text-brand-400 transition-colors truncate">{svc?.name ?? t.serviceId}</p>
-                    <p className="text-xs text-dark-muted font-mono">{t.id}</p>
+                <Link key={t.id} href={`/tasks/${t.id}`}
+                  className="flex items-center justify-between p-3 rounded-lg bg-dark-surface2 hover:bg-dark-border transition-colors group">
+                  <div className="flex items-center gap-3">
+                    <span className={`w-2 h-2 rounded-full ${
+                      t.status === 'completed' ? 'bg-emerald-400'
+                      : t.status === 'running' ? 'bg-purple-400 animate-pulse'
+                      : t.status === 'failed' ? 'bg-red-400' : 'bg-amber-400'
+                    }`} />
+                    <div>
+                      <p className="text-sm font-medium text-dark-text group-hover:text-brand-400 transition-colors">{svc?.name}</p>
+                      <p className="text-xs text-dark-muted font-mono">{t.id}</p>
+                    </div>
                   </div>
                   <div className="text-right">
-                    <p className="text-xs font-mono text-dark-text">{t.maxBudget} EGLD</p>
-                    {t.latencyMs && <p className="text-xs font-mono text-emerald-400">{t.latencyMs}ms</p>}
+                    <p className={`text-xs font-mono ${STATUS_COLORS[t.status] ?? 'text-dark-muted'}`}>{t.status}</p>
+                    {t.latencyMs && <p className="text-xs text-dark-muted">{t.latencyMs}ms</p>}
                   </div>
                 </Link>
               );
             })}
           </div>
         </div>
+
+        {/* Protocol Health */}
+        <ProtocolHealth />
       </div>
 
-      {/* Protocol health */}
+      {/* Top Services */}
       <div className="card mt-4">
-        <h3 className="section-heading mb-4">Protocol Stack Health</h3>
-        <div className="grid grid-cols-2 sm:grid-cols-5 gap-3">
-          {[
-            { name: 'UCP', desc: 'Discovery', uptime: 99.98, latency: 12 },
-            { name: 'ACP', desc: 'Checkout',  uptime: 99.95, latency: 28 },
-            { name: 'AP2', desc: 'Mandate',   uptime: 100.0, latency: 8 },
-            { name: 'x402', desc: 'Payment',  uptime: 99.97, latency: 45 },
-            { name: 'MCP', desc: 'Execution', uptime: 99.91, latency: 67 },
-          ].map(p => (
-            <div key={p.name} className="bg-dark-surface2 rounded-xl p-3 text-center border border-dark-border">
-              <p className="text-sm font-bold font-mono text-brand-400">{p.name}</p>
-              <p className="text-xs text-dark-muted mt-0.5">{p.desc}</p>
-              <p className="text-sm font-bold text-emerald-400 mt-2">{p.uptime}%</p>
-              <p className="text-xs text-dark-muted">{p.latency}ms avg</p>
-            </div>
+        <div className="flex items-center justify-between mb-4">
+          <h3 className="section-heading">Top Servicii</h3>
+          <Link href="/" className="text-xs text-brand-400 hover:text-brand-300">Marketplace →</Link>
+        </div>
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+          {topServices.map((s, i) => (
+            <Link key={s.id} href={`/services/${s.id}`}
+              className="bg-dark-surface2 rounded-xl p-4 hover:bg-dark-border transition-colors group">
+              <div className="flex items-center justify-between mb-2">
+                <span className="text-xs font-bold text-dark-muted">#{i + 1}</span>
+                <span className="text-xs font-mono text-emerald-400">{(s.reputationScore / 100).toFixed(1)}%</span>
+              </div>
+              <p className="text-sm font-semibold text-dark-text group-hover:text-brand-400 transition-colors line-clamp-1">{s.name}</p>
+              <p className="text-xs text-dark-muted mt-1">{(s.totalTasks / 1000).toFixed(1)}K tasks • {s.priceAmount} EGLD</p>
+            </Link>
           ))}
         </div>
       </div>
