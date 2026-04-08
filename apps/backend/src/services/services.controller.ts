@@ -1,43 +1,27 @@
-import {
-  Controller, Get, Post, Patch, Delete,
-  Param, Body, Query, HttpCode, HttpStatus,
-} from '@nestjs/common';
+import { Controller, Get, Post, Param, Body, Query } from '@nestjs/common';
 import { ServicesService } from './services.service';
-import { RegisterServiceDto, UpdateServiceDto, ServiceFilterDto } from './dto/service.dto';
+import { ApiTags, ApiOperation } from '@nestjs/swagger';
 
+@ApiTags('services')
 @Controller('services')
 export class ServicesController {
   constructor(private readonly svc: ServicesService) {}
 
-  @Post()
-  @HttpCode(HttpStatus.CREATED)
-  register(@Body() dto: RegisterServiceDto) {
-    return this.svc.registerService(dto);
-  }
-
   @Get()
-  list(@Query() filters: ServiceFilterDto) {
-    return this.svc.listServices(filters);
+  @ApiOperation({ summary: 'List all services' })
+  findAll(@Query('category') category?: string, @Query('limit') limit = '50') {
+    return this.svc.findAll({ category, limit: Number(limit) });
   }
 
   @Get(':id')
-  getOne(@Param('id') id: string) {
-    return this.svc.getService(id);
+  @ApiOperation({ summary: 'Get service by ID' })
+  findOne(@Param('id') id: string) {
+    return this.svc.findOne(id);
   }
 
-  @Get(':id/quote')
-  quote(@Param('id') id: string) {
-    return this.svc.getQuote(id);
-  }
-
-  @Patch(':id')
-  update(@Param('id') id: string, @Body() dto: UpdateServiceDto) {
-    return this.svc.updateService(id, dto);
-  }
-
-  @Delete(':id')
-  @HttpCode(HttpStatus.OK)
-  deregister(@Param('id') id: string) {
-    return this.svc.deregisterService(id);
+  @Post()
+  @ApiOperation({ summary: 'Register a new service' })
+  create(@Body() body: Record<string, unknown>) {
+    return this.svc.create(body);
   }
 }

@@ -2,91 +2,62 @@ import {
   WebSocketGateway,
   WebSocketServer,
   SubscribeMessage,
-  MessageBody,
-  ConnectedSocket,
-  OnGatewayInit,
   OnGatewayConnection,
   OnGatewayDisconnect,
+  MessageBody,
 } from '@nestjs/websockets';
-import { Logger } from '@nestjs/common';
-import { OnEvent } from '@nestjs/event-emitter';
 import { Server, Socket } from 'socket.io';
+import { Logger } from '@nestjs/common';
 
-export interface ChainEvent {
-  id: string;
-  type: string;
-  txHash: string;
-  timestamp: number;
-  blockNonce: number;
-  data: Record<string, string>;
-}
-
-@WebSocketGateway({
-  cors: { origin: '*' },
-  namespace: '/events',
-})
-export class EventsGateway
-  implements OnGatewayInit, OnGatewayConnection, OnGatewayDisconnect
-{
+@WebSocketGateway({ cors: { origin: '*' }, namespace: '/events' })
+export class EventsGateway implements OnGatewayConnection, OnGatewayDisconnect {
   @WebSocketServer() server: Server;
   private readonly logger = new Logger(EventsGateway.name);
-  private readonly recentEvents: ChainEvent[] = [];
-  private readonly MAX_HISTORY = 100;
-
-  afterInit() {
-    this.logger.log('WebSocket /events gateway initialized');
-  }
+  private clientCount = 0;
 
   handleConnection(client: Socket) {
-    this.logger.debug(`Client connected: ${client.id}`);
-    // Send last N events on connect
-    client.emit('history', this.recentEvents.slice(0, 30));
+    this.clientCount++;
+    this.logger.log(`WS connected: ${client.id} (total: ${this.clientCount})`);
+    // Send welcome event
+    client.emit('connected', {
+      message: 'AgentBazaar event stream ready',
+      timestamp: new Date().toISOString(),
+    });
+    // Start mock event stream for demo
+    this.startMockStream(client);
   }
 
   handleDisconnect(client: Socket) {
-    this.logger.debug(`Client disconnected: ${client.id}`);
+    this.clientCount--;
+    this.logger.log(`WS disconnected: ${client.id} (total: ${this.clientCount})`);
   }
 
   @SubscribeMessage('subscribe')
-  handleSubscribe(
-    @MessageBody() types: string[],
-    @ConnectedSocket() client: Socket,
-  ) {
-    if (Array.isArray(types)) {
-      types.forEach((t) => client.join(`event:${t}`));
-    } else {
-      client.join('event:all');
-    }
-    return { status: 'subscribed', types };
+  handleSubscribe(@MessageBody() data: { room: string }) {
+    this.logger.debug(`Subscribe to room: ${data?.room}`);
   }
 
-  @SubscribeMessage('unsubscribe')
-  handleUnsubscribe(
-    @MessageBody() types: string[],
-    @ConnectedSocket() client: Socket,
-  ) {
-    if (Array.isArray(types)) {
-      types.forEach((t) => client.leave(`event:${t}`));
-    }
-    return { status: 'unsubscribed' };
+  emit(event: string, payload: Record<string, unknown>) {
+    this.server?.emit(event, { ...payload, timestamp: new Date().toISOString() });
   }
 
-  // Called by EventPoller via NestJS EventEmitter
-  @OnEvent('chain.event')
-  broadcast(event: ChainEvent) {
-    // Add to rolling buffer
-    this.recentEvents.unshift(event);
-    if (this.recentEvents.length > this.MAX_HISTORY) {
-      this.recentEvents.pop();
+  private startMockStream(client: Socket) {
+    const events = [
+      { type: 'TaskCreated',       delay: 3000  },
+      { type: 'TaskCompleted',     delay: 6000  },
+      { type: 'ReputationUpdated', delay: 9000  },
+      { type: 'ServiceRegistered', delay: 12000 },
+    ];
+    for (const ev of events) {
+      const t = setTimeout(() => {
+        if (!client.connected) return;
+        client.emit('event', {
+          type: ev.type,
+          hash: '0x' + Math.random().toString(16).slice(2, 18),
+          timestamp: new Date().toISOString(),
+        });
+      }, ev.delay);
+      client.on('disconnect', () => clearTimeout(t));
     }
-
-    // Broadcast to all subscribers
-    this.server?.emit('event', event);
-    this.server?.to(`event:${event.type}`).emit('event', event);
-    this.server?.to('event:all').emit('event', event);
-  }
-
-  getRecentEvents(limit = 30): ChainEvent[] {
-    return this.recentEvents.slice(0, limit);
   }
 }

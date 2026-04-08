@@ -1,17 +1,21 @@
 import { Controller, Get } from '@nestjs/common';
-import { ApiTags } from '@nestjs/swagger';
+import { MultiversxService } from '../multiversx/multiversx.service';
 
-@ApiTags('Health')
 @Controller('health')
 export class HealthController {
+  constructor(private readonly mvx: MultiversxService) {}
+
   @Get()
-  check() {
+  async health() {
+    const network = await this.mvx.getNetworkStatus();
     return {
       status: 'ok',
-      service: 'AgentBazaar API',
-      version: '0.1.0',
       timestamp: new Date().toISOString(),
-      network: process.env.MVX_NETWORK || 'devnet',
+      version: '0.1.0',
+      network: 'devnet',
+      contracts: this.mvx.addresses,
+      contractsConfigured: this.mvx.isConfigured(),
+      multiversxReachable: Boolean(network),
     };
   }
 }

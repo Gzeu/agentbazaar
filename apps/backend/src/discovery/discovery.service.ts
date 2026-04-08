@@ -1,52 +1,46 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, Logger } from '@nestjs/common';
 import { ServicesService } from '../services/services.service';
+
+interface DiscoveryQuery {
+  category?:     string;
+  maxLatencyMs?: number;
+  minScore?:     number;
+  ucpRequired?:  boolean;
+  mcpRequired?:  boolean;
+}
 
 @Injectable()
 export class DiscoveryService {
-  constructor(private readonly servicesService: ServicesService) {}
+  private readonly logger = new Logger(DiscoveryService.name);
 
-  async discover(filters: {
-    query?: string;
-    category?: string;
-    maxPrice?: string;
-    minReputation?: number;
-  }) {
-    const results = await this.servicesService.listServices({
-      category: filters.category,
-      maxPrice: filters.maxPrice,
-      minReputation: filters.minReputation,
+  constructor(private readonly services: ServicesService) {}
+
+  discover(query: DiscoveryQuery) {
+    const { data: all } = this.services.findAll({ limit: 1000 });
+
+    const filtered = all.filter(s => {
+      if (!s.active) return false;
+      if (query.category     && s.category !== query.category)       return false;
+      if (query.maxLatencyMs && s.maxLatencyMs > query.maxLatencyMs) return false;
+      if (query.minScore     && s.reputationScore < query.minScore)  return false;
+      if (query.ucpRequired  && !s.ucpCompatible)                    return false;
+      if (query.mcpRequired  && !s.mcpCompatible)                    return false;
+      return true;
     });
 
-    // Text search by name/description
-    if (filters.query) {
-      const q = filters.query.toLowerCase();
-      results.data = results.data.filter(
-        (s) =>
-          s.name.toLowerCase().includes(q) ||
-          s.description.toLowerCase().includes(q) ||
-          s.tags.some((t) => t.toLowerCase().includes(q)),
-      );
-    }
+    // Score by reputation + latency
+    const scored = filtered.map(s => ({
+      ...s,
+      _score: s.reputationScore * 0.7 + (1000 / (s.maxLatencyMs || 1)) * 0.3,
+    })).sort((a, b) => b._score - a._score);
+
+    this.logger.debug(`Discovery: ${scored.length} results for query ${JSON.stringify(query)}`);
 
     return {
-      services: results.data,
-      total: results.total,
-      ucpVersion: '1.0',
+      query,
+      results: scored,
+      count: scored.length,
       timestamp: new Date().toISOString(),
-    };
-  }
-
-  getCategories() {
-    return {
-      categories: [
-        { id: 'data-fetching', label: 'Data Fetching', description: 'Web scraping, APIs, oracles' },
-        { id: 'compute-offload', label: 'Compute Offload', description: 'Inference, embeddings, processing' },
-        { id: 'wallet-actions', label: 'Wallet Actions', description: 'Signing, staking, swaps' },
-        { id: 'compliance', label: 'Compliance', description: 'KYC, risk scoring, AML' },
-        { id: 'enrichment', label: 'Enrichment', description: 'Semantic enrichment, entity extraction' },
-        { id: 'orchestration', label: 'Orchestration', description: 'Agent team workflows, pipelines' },
-        { id: 'notifications', label: 'Notifications', description: 'Webhooks, alerts, messaging' },
-      ],
     };
   }
 }

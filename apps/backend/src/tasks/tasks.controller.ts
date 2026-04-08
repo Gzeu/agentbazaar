@@ -1,56 +1,33 @@
-import {
-  Controller, Get, Post, Param, Body,
-  Query, DefaultValuePipe, ParseIntPipe,
-  HttpCode, HttpStatus,
-} from '@nestjs/common';
+import { Controller, Get, Post, Param, Body, Query } from '@nestjs/common';
 import { TasksService } from './tasks.service';
-import { SubmitTaskDto, SubmitProofDto, OpenDisputeDto } from './dto/task.dto';
+import { ApiTags, ApiOperation } from '@nestjs/swagger';
 
+@ApiTags('tasks')
 @Controller('tasks')
 export class TasksController {
-  constructor(private readonly svc: TasksService) {}
-
-  @Post()
-  @HttpCode(HttpStatus.CREATED)
-  submit(@Body() dto: SubmitTaskDto) {
-    return this.svc.submitTask(dto);
-  }
+  constructor(private readonly tasks: TasksService) {}
 
   @Get()
-  list(
-    @Query('page', new DefaultValuePipe(1), ParseIntPipe) page: number,
-    @Query('limit', new DefaultValuePipe(20), ParseIntPipe) limit: number,
-  ) {
-    return this.svc.listTasks(page, limit);
-  }
-
-  @Get('consumer/:address')
-  byConsumer(@Param('address') address: string) {
-    return this.svc.getTasksByConsumer(address);
-  }
-
-  @Get('provider/:address')
-  byProvider(@Param('address') address: string) {
-    return this.svc.getTasksByProvider(address);
+  @ApiOperation({ summary: 'List all tasks' })
+  findAll(@Query('limit') limit = '50', @Query('status') status?: string) {
+    return this.tasks.findAll({ limit: Number(limit), status });
   }
 
   @Get(':id')
-  getOne(@Param('id') id: string) {
-    return this.svc.getTask(id);
+  @ApiOperation({ summary: 'Get task by ID' })
+  findOne(@Param('id') id: string) {
+    return this.tasks.findOne(id);
   }
 
-  @Post(':id/proof')
-  @HttpCode(HttpStatus.OK)
-  proof(@Param('id') id: string, @Body() dto: SubmitProofDto) {
-    return this.svc.submitProof(id, dto);
+  @Post()
+  @ApiOperation({ summary: 'Register a task (called after on-chain createTask TX)' })
+  create(@Body() body: Record<string, unknown>) {
+    return this.tasks.create(body);
   }
 
-  @Post(':id/dispute')
-  @HttpCode(HttpStatus.OK)
-  dispute(
-    @Param('id') id: string,
-    @Body() dto: OpenDisputeDto & { callerAddress: string },
-  ) {
-    return this.svc.openDispute(id, dto, dto.callerAddress);
+  @Post(':id/complete')
+  @ApiOperation({ summary: 'Mark task completed with proof hash' })
+  complete(@Param('id') id: string, @Body() body: { proofHash: string; latencyMs: number }) {
+    return this.tasks.complete(id, body.proofHash, body.latencyMs);
   }
 }
