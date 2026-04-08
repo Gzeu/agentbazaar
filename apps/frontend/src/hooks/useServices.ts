@@ -1,41 +1,47 @@
-import useSWR from 'swr';
-import { servicesApi, discoveryApi } from '@/lib/api';
-import type { Service } from '@/lib/types';
+'use client';
 
-export function useServices(filters?: Record<string, unknown>) {
-  const key = ['services', JSON.stringify(filters)];
-  const { data, error, isLoading, mutate } = useSWR(
-    key,
-    () => servicesApi.list(filters),
-    { refreshInterval: 10000 },
-  );
+import { useState, useMemo } from 'react';
+import { MOCK_SERVICES } from '@/lib/mock-data';
+import type { Service, ServiceCategory } from '@/lib/types';
 
-  return {
-    services: (data?.data || []) as Service[],
-    total: data?.total || 0,
-    loading: isLoading,
-    error,
-    refresh: mutate,
-  };
-}
+export type SortKey = 'reputation' | 'price-asc' | 'price-desc' | 'tasks' | 'newest';
 
-export function useService(id: string) {
-  const { data, error, isLoading } = useSWR(
-    id ? `service-${id}` : null,
-    () => servicesApi.get(id),
-  );
-  return { service: data as Service | undefined, loading: isLoading, error };
-}
+export function useServices() {
+  const [search, setSearch] = useState('');
+  const [category, setCategory] = useState<ServiceCategory | 'all'>('all');
+  const [sort, setSort] = useState<SortKey>('reputation');
+  const [ucpOnly, setUcpOnly] = useState(false);
+  const [mcpOnly, setMcpOnly] = useState(false);
 
-export function useDiscover(params: Record<string, unknown>) {
-  const { data, error, isLoading } = useSWR(
-    ['discover', JSON.stringify(params)],
-    () => discoveryApi.discover(params),
-    { refreshInterval: 15000 },
-  );
-  return {
-    services: (data?.services || []) as Service[],
-    loading: isLoading,
-    error,
-  };
+  const filtered = useMemo(() => {
+    let result = [...MOCK_SERVICES];
+
+    if (search.trim()) {
+      const q = search.toLowerCase();
+      result = result.filter(s =>
+        s.name.toLowerCase().includes(q) ||
+        s.description.toLowerCase().includes(q) ||
+        s.tags.some(t => t.includes(q))
+      );
+    }
+
+    if (category !== 'all') {
+      result = result.filter(s => s.category === category);
+    }
+
+    if (ucpOnly) result = result.filter(s => s.ucpCompatible);
+    if (mcpOnly) result = result.filter(s => s.mcpCompatible);
+
+    switch (sort) {
+      case 'reputation':  result.sort((a, b) => b.reputationScore - a.reputationScore); break;
+      case 'price-asc':   result.sort((a, b) => parseFloat(a.priceAmount) - parseFloat(b.priceAmount)); break;
+      case 'price-desc':  result.sort((a, b) => parseFloat(b.priceAmount) - parseFloat(a.priceAmount)); break;
+      case 'tasks':       result.sort((a, b) => b.totalTasks - a.totalTasks); break;
+      case 'newest':      result.sort((a, b) => new Date(b.registeredAt).getTime() - new Date(a.registeredAt).getTime()); break;
+    }
+
+    return result;
+  }, [search, category, sort, ucpOnly, mcpOnly]);
+
+  return { services: filtered, search, setSearch, category, setCategory, sort, setSort, ucpOnly, setUcpOnly, mcpOnly, setMcpOnly, total: MOCK_SERVICES.length };
 }
