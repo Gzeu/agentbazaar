@@ -1,47 +1,45 @@
 'use client';
+import { useState, useEffect, useCallback } from 'react';
+import { servicesApi, type Service } from '@/lib/api';
 
-import { useState, useMemo } from 'react';
-import { MOCK_SERVICES } from '@/lib/mock-data';
-import type { Service, ServiceCategory } from '@/lib/types';
+export function useServices(category?: string, limit = 50) {
+  const [data,    setData]    = useState<Service[]>([]);
+  const [total,   setTotal]   = useState(0);
+  const [loading, setLoading] = useState(true);
+  const [error,   setError]   = useState<string | null>(null);
 
-export type SortKey = 'reputation' | 'price-asc' | 'price-desc' | 'tasks' | 'newest';
-
-export function useServices() {
-  const [search, setSearch] = useState('');
-  const [category, setCategory] = useState<ServiceCategory | 'all'>('all');
-  const [sort, setSort] = useState<SortKey>('reputation');
-  const [ucpOnly, setUcpOnly] = useState(false);
-  const [mcpOnly, setMcpOnly] = useState(false);
-
-  const filtered = useMemo(() => {
-    let result = [...MOCK_SERVICES];
-
-    if (search.trim()) {
-      const q = search.toLowerCase();
-      result = result.filter(s =>
-        s.name.toLowerCase().includes(q) ||
-        s.description.toLowerCase().includes(q) ||
-        s.tags.some(t => t.includes(q))
-      );
+  const load = useCallback(async () => {
+    setLoading(true);
+    try {
+      const res = await servicesApi.list(category, limit);
+      setData(res.data);
+      setTotal(res.total);
+      setError(null);
+    } catch (e) {
+      setError((e as Error).message);
+    } finally {
+      setLoading(false);
     }
+  }, [category, limit]);
 
-    if (category !== 'all') {
-      result = result.filter(s => s.category === category);
-    }
+  useEffect(() => { load(); }, [load]);
 
-    if (ucpOnly) result = result.filter(s => s.ucpCompatible);
-    if (mcpOnly) result = result.filter(s => s.mcpCompatible);
+  return { data, total, loading, error, refetch: load };
+}
 
-    switch (sort) {
-      case 'reputation':  result.sort((a, b) => b.reputationScore - a.reputationScore); break;
-      case 'price-asc':   result.sort((a, b) => parseFloat(a.priceAmount) - parseFloat(b.priceAmount)); break;
-      case 'price-desc':  result.sort((a, b) => parseFloat(b.priceAmount) - parseFloat(a.priceAmount)); break;
-      case 'tasks':       result.sort((a, b) => b.totalTasks - a.totalTasks); break;
-      case 'newest':      result.sort((a, b) => new Date(b.registeredAt).getTime() - new Date(a.registeredAt).getTime()); break;
-    }
+export function useServiceDetail(id: string | null) {
+  const [data,    setData]    = useState<Service | null>(null);
+  const [loading, setLoading] = useState(false);
+  const [error,   setError]   = useState<string | null>(null);
 
-    return result;
-  }, [search, category, sort, ucpOnly, mcpOnly]);
+  useEffect(() => {
+    if (!id) return;
+    setLoading(true);
+    servicesApi.get(id)
+      .then(r => { setData(r); setError(null); })
+      .catch(e => setError((e as Error).message))
+      .finally(() => setLoading(false));
+  }, [id]);
 
-  return { services: filtered, search, setSearch, category, setCategory, sort, setSort, ucpOnly, setUcpOnly, mcpOnly, setMcpOnly, total: MOCK_SERVICES.length };
+  return { data, loading, error };
 }

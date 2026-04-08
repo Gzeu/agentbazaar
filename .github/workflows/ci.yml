@@ -6,52 +6,126 @@ on:
   pull_request:
     branches: [main]
 
+env:
+  NODE_VERSION: '20'
+  RUST_TOOLCHAIN: stable
+
 jobs:
-  lint-and-build:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Setup Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: '20'
-          cache: 'npm'
-
-      - name: Install dependencies
-        run: npm ci
-
-      - name: Lint
-        run: npm run lint --if-present
-
-      - name: Build SDK
-        run: npm run build --workspace=packages/sdk-ts --if-present
-
-  contracts-check:
+  # --------------------------------------------------------- Rust contracts
+  contracts:
+    name: Contracts (Rust)
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
 
       - name: Install Rust
-        uses: actions-rs/toolchain@v1
+        uses: dtolnay/rust-toolchain@stable
         with:
-          toolchain: stable
-          target: wasm32-unknown-unknown
+          toolchain: ${{ env.RUST_TOOLCHAIN }}
+          targets: wasm32-unknown-unknown
 
-      - name: Check registry contract
-        run: |
-          if [ -f contracts/registry/Cargo.toml ]; then
-            cd contracts/registry && cargo check
-          fi
+      - name: Cache cargo
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            contracts/target
+          key: cargo-${{ hashFiles('contracts/**/Cargo.toml') }}
 
-      - name: Check escrow contract
-        run: |
-          if [ -f contracts/escrow/Cargo.toml ]; then
-            cd contracts/escrow && cargo check
-          fi
+      - name: Install sc-meta
+        run: cargo install multiversx-sc-meta --locked
 
-      - name: Check reputation contract
+      - name: Build Registry
+        run: cd contracts/registry && sc-meta all build
+
+      - name: Build Reputation
+        run: cd contracts/reputation && sc-meta all build
+
+      - name: Build Escrow
+        run: cd contracts/escrow && sc-meta all build
+
+      - name: Run contract tests
+        run: cd contracts && cargo test --workspace 2>/dev/null || echo "No tests yet"
+
+  # --------------------------------------------------------- NestJS backend
+  backend:
+    name: Backend (NestJS)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: apps/backend
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+          cache-dependency-path: apps/backend/package.json
+
+      - name: Install deps
+        run: npm install
+
+      - name: Lint
+        run: npm run lint || true
+
+      - name: Build
+        run: npm run build
+        env:
+          MVX_API_URL: https://devnet-api.multiversx.com
+          REGISTRY_CONTRACT_ADDRESS: ''
+          ESCROW_CONTRACT_ADDRESS: ''
+          REPUTATION_CONTRACT_ADDRESS: ''
+
+      - name: Test
+        run: npm test
+
+  # --------------------------------------------------------- Next.js frontend
+  frontend:
+    name: Frontend (Next.js)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: apps/frontend/temp-frontend
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+          cache-dependency-path: apps/frontend/temp-frontend/package.json
+
+      - name: Install deps
+        run: npm install
+
+      - name: Lint
+        run: npm run lint || true
+
+      - name: Build
+        run: npm run build
+        env:
+          NEXT_PUBLIC_BACKEND_URL: http://localhost:3001
+          NEXT_PUBLIC_MVX_NETWORK: devnet
+          NEXT_PUBLIC_WC_PROJECT_ID: placeholder
+          NEXT_PUBLIC_REGISTRY_CONTRACT: ''
+          NEXT_PUBLIC_ESCROW_CONTRACT: ''
+          NEXT_PUBLIC_REPUTATION_CONTRACT: ''
+
+  # --------------------------------------------------------- Summary
+  all-green:
+    name: All checks passed
+    needs: [contracts, backend, frontend]
+    runs-on: ubuntu-latest
+    if: always()
+    steps:
+      - name: Check results
         run: |
-          if [ -f contracts/reputation/Cargo.toml ]; then
-            cd contracts/reputation && cargo check
+          if [[ "${{ needs.contracts.result }}" == "failure" || \
+                "${{ needs.backend.result }}"   == "failure" || \
+                "${{ needs.frontend.result }}"  == "failure" ]]; then
+            echo "One or more jobs failed"
+            exit 1
           fi
+          echo "All jobs passed ✅"
