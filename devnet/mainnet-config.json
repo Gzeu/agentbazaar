@@ -1,0 +1,32 @@
+{
+  "_comment": "AgentBazaar Mainnet Configuration — populate addresses after deploy",
+  "network": {
+    "chainId":     "1",
+    "name":        "MultiversX Mainnet",
+    "apiUrl":      "https://api.multiversx.com",
+    "explorerUrl": "https://explorer.multiversx.com",
+    "gatewayUrl":  "https://gateway.multiversx.com"
+  },
+  "contracts": {
+    "registry":   "",
+    "escrow":     "",
+    "reputation": ""
+  },
+  "deploy": {
+    "gasLimit":        {"registry": 150000000, "escrow": 150000000, "reputation": 150000000},
+    "marketplaceFee":  250,
+    "minStakeEGLD":    "10000000000000000",
+    "disputeQuorum":   3
+  },
+  "frontend": {
+    "NEXT_PUBLIC_MVX_NETWORK":   "mainnet",
+    "NEXT_PUBLIC_MVX_API":       "https://api.multiversx.com",
+    "NEXT_PUBLIC_WC_PROJECT_ID": "<YOUR_WC_PROJECT_ID>"
+  },
+  "notes": [
+    "1. Security audit required before mainnet deploy",
+    "2. Minimum stake: 0.01 EGLD per provider",
+    "3. Dispute quorum: 3 arbiters",
+    "4. Platform fee: 2.5% on all completed tasks"
+  ]
+}
