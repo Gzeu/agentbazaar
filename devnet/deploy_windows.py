@@ -21,9 +21,9 @@ def log(msg, color=""):
     reset = "\033[0m" if color else ""
     print(f"{colors[color]}{msg}{reset}")
 
-def run(cmd, check=True):
-    log(f"  > {' '.join(cmd)}", "blue")
-    result = subprocess.run(cmd, capture_output=True, text=True)
+def run(cmd, check=True, cwd=None):
+    log(f"  > {' '.join(str(c) for c in cmd)}", "blue")
+    result = subprocess.run(cmd, capture_output=True, text=True, cwd=cwd)
     if check and result.returncode != 0:
         log(f"EROARE: {result.stderr}", "red")
         log(f"STDOUT: {result.stdout}", "red")
@@ -32,28 +32,42 @@ def run(cmd, check=True):
 
 def build_contract(name):
     contract_dir = ROOT / "contracts" / name
-    src_dir = contract_dir / "src"
-    if not src_dir.exists():
+    if not (contract_dir / "src").exists():
         log(f"  [SKIP] {name} - director src lipsa", "yellow")
         return False
+
     log(f"\n[BUILD] {name}...", "blue")
+
+    # Incearca mai intai sc-meta
     result = run(["sc-meta", "all", "build", "--path", str(contract_dir)], check=False)
-    if result.returncode != 0:
-        log(f"  [WARN] sc-meta build esuat pentru {name}", "yellow")
-        log("  Instalare: cargo install multiversx-sc-meta", "yellow")
-        return False
-    wasm_files = list((contract_dir / "output").glob("*.wasm"))
-    if wasm_files:
-        log(f"  [OK] {name}.wasm built: {wasm_files[0]}", "green")
-        return True
+    if result.returncode == 0:
+        wasm_files = list((contract_dir / "output").glob("*.wasm"))
+        if wasm_files:
+            log(f"  [OK] sc-meta build reusit: {wasm_files[0].name}", "green")
+            return True
+
+    # Fallback: cargo build direct -> wasm in target/
+    log(f"  [INFO] sc-meta nu a mers, folosesc cargo build direct...", "yellow")
+    result = run(
+        ["cargo", "build", "--target", "wasm32-unknown-unknown", "--release",
+         "--manifest-path", str(contract_dir / "Cargo.toml")],
+        check=False
+    )
+    if result.returncode == 0:
+        wasm = find_wasm(name)
+        if wasm:
+            log(f"  [OK] cargo build reusit: {wasm}", "green")
+            return True
+    log(f"  [WARN] Build esuat pentru {name}: {result.stderr[:300]}", "yellow")
     return False
 
 def find_wasm(name):
-    paths = [
+    # 1. sc-meta output dir
+    sc_meta_paths = [
         ROOT / "contracts" / name / "output" / f"{name}.wasm",
         ROOT / "contracts" / name / "output" / f"agentbazaar-{name}.wasm",
     ]
-    for p in paths:
+    for p in sc_meta_paths:
         if p.exists():
             return str(p)
     output_dir = ROOT / "contracts" / name / "output"
@@ -61,15 +75,32 @@ def find_wasm(name):
         wasm_list = list(output_dir.glob("*.wasm"))
         if wasm_list:
             return str(wasm_list[0])
+
+    # 2. cargo build target dir
+    cargo_paths = [
+        ROOT / "target" / "wasm32-unknown-unknown" / "release" / f"{name}.wasm",
+        ROOT / "contracts" / name / "target" / "wasm32-unknown-unknown" / "release" / f"{name}.wasm",
+    ]
+    for p in cargo_paths:
+        if p.exists():
+            return str(p)
+
+    # 3. Cauta recursiv in target/
+    target_dir = ROOT / "target" / "wasm32-unknown-unknown" / "release"
+    if target_dir.exists():
+        matches = list(target_dir.glob(f"{name}*.wasm"))
+        if matches:
+            return str(matches[0])
+
     return None
 
 def deploy_contract(name, args=None):
     wasm = find_wasm(name)
     if not wasm:
-        log(f"  [SKIP] {name}.wasm nu exista - skip deploy (build mai intai)", "yellow")
+        log(f"  [SKIP] {name}.wasm nu exista - skip deploy", "yellow")
         return None
 
-    log(f"\n[DEPLOY] {name}...", "blue")
+    log(f"\n[DEPLOY] {name}... wasm={wasm}", "blue")
     cmd = [
         "mxpy", "contract", "deploy",
         f"--bytecode={wasm}",
@@ -108,6 +139,7 @@ def deploy_contract(name, args=None):
 
     log(f"  [WARN] {name} - adresa nu a putut fi determinata", "yellow")
     log(f"  Stdout: {result.stdout[:500]}", "yellow")
+    log(f"  Stderr: {result.stderr[:500]}", "yellow")
     return None
 
 def patch_env(addresses):
@@ -136,7 +168,7 @@ def patch_env(addresses):
             log(f"  [OK] Patched {env_file.name}", "green")
 
 def check_balance():
-    import urllib.request, urllib.error
+    import urllib.request
     if not PEM_FILE.exists():
         log("[WARN] deployer.pem nu exista!", "yellow")
         return
@@ -155,7 +187,6 @@ def check_balance():
             log(f"  Balanta: {balance_egld:.4f} xEGLD", "green" if balance_egld > 0.1 else "red")
             if balance_egld < 0.1:
                 log(f"  [WARN] Balanta prea mica! Fondeaza la: https://devnet-wallet.multiversx.com/faucet", "yellow")
-                log(f"  Adresa ta: {address}", "yellow")
                 return False
             return True
     except Exception as e:
@@ -178,30 +209,12 @@ def main():
 
     addresses = {}
 
-    build_contract("registry")
-    addr = deploy_contract("registry")
-    if addr:
-        addresses["registry"] = addr
-
-    build_contract("reputation")
-    addr = deploy_contract("reputation")
-    if addr:
-        addresses["reputation"] = addr
-
-    build_contract("escrow")
-    addr = deploy_contract("escrow")
-    if addr:
-        addresses["escrow"] = addr
-
-    build_contract("token")
-    addr = deploy_contract("token")
-    if addr:
-        addresses["token"] = addr
-
-    build_contract("dao")
-    addr = deploy_contract("dao")
-    if addr:
-        addresses["dao"] = addr
+    for name in ["registry", "reputation", "escrow", "token", "dao"]:
+        build_contract(name)
+        addr = deploy_contract(name)
+        if addr:
+            addresses[name] = addr
+        time.sleep(2)  # evita nonce issues
 
     if addresses:
         ADDRESSES_FILE.write_text(json.dumps(addresses, indent=2))
@@ -210,7 +223,8 @@ def main():
         log("\n[PATCH] Actualizez .env files...", "blue")
         patch_env(addresses)
     else:
-        log("\n[WARN] Nicio adresa deployata - verifica ca sc-meta si mxpy sunt instalate", "yellow")
+        log("\n[WARN] Nicio adresa deployata - verifica ca mxpy e instalat", "yellow")
+        log("  pip install mxpy", "yellow")
 
     log("\n" + "=" * 60, "green")
     log("  Deploy complet!", "green")
