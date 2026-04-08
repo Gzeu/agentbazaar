@@ -1,10 +1,9 @@
 #!/usr/bin/env python3
 """
 AgentBazaar Windows Deploy Script
-Inlocuieste deploy.sh pentru Windows (fara WSL/bash)
 Foloseste: python devnet/deploy_windows.py
 """
-import subprocess, json, sys, os, time, re
+import subprocess, json, sys, time, re
 from pathlib import Path
 
 ROOT = Path(__file__).parent.parent
@@ -24,8 +23,7 @@ def run(cmd, check=True, cwd=None):
     log(f"  > {' '.join(str(c) for c in cmd)}", "blue")
     result = subprocess.run(cmd, capture_output=True, text=True, cwd=cwd)
     if check and result.returncode != 0:
-        log(f"EROARE: {result.stderr}", "red")
-        log(f"STDOUT: {result.stdout}", "red")
+        log(f"EROARE: {result.stderr[-800:]}", "red")
         sys.exit(1)
     return result
 
@@ -35,28 +33,33 @@ def find_wasm(name):
         # sc-meta output
         ROOT / "contracts" / name / "output" / f"{name}.wasm",
         ROOT / "contracts" / name / "output" / f"agentbazaar-{name}.wasm",
-        # cargo build workspace target
+        # cargo workspace target (agentbazaar-2/target/)
         ROOT / "target" / "wasm32-unknown-unknown" / "release" / f"{name}.wasm",
-        # cargo build local target
+        # cargo local target
         ROOT / "contracts" / name / "target" / "wasm32-unknown-unknown" / "release" / f"{name}.wasm",
     ]
     for p in candidates:
         if p.exists():
-            return str(p)
+            return p
 
     # sc-meta output glob
     output_dir = ROOT / "contracts" / name / "output"
     if output_dir.exists():
-        wasm_list = list(output_dir.glob("*.wasm"))
-        if wasm_list:
-            return str(wasm_list[0])
+        found = list(output_dir.glob("*.wasm"))
+        if found:
+            return found[0]
 
-    # target glob
-    target_dir = ROOT / "target" / "wasm32-unknown-unknown" / "release"
-    if target_dir.exists():
-        matches = list(target_dir.glob(f"{name}*.wasm"))
-        if matches:
-            return str(matches[0])
+    # workspace target glob - cauta orice .wasm care contine numele
+    target_release = ROOT / "target" / "wasm32-unknown-unknown" / "release"
+    if target_release.exists():
+        # exact match
+        exact = list(target_release.glob(f"{name}.wasm"))
+        if exact:
+            return exact[0]
+        # partial match (ex: agentbazaar_registry.wasm)
+        partial = [f for f in target_release.glob("*.wasm") if name in f.stem]
+        if partial:
+            return partial[0]
 
     return None
 
@@ -71,7 +74,7 @@ def build_contract(name):
     # Daca WASM exista deja, skip build
     existing = find_wasm(name)
     if existing:
-        log(f"  [OK] WASM deja exista: {existing}", "green")
+        log(f"  [OK] WASM existent: {existing}", "green")
         return True
 
     # Incearca sc-meta
@@ -79,30 +82,32 @@ def build_contract(name):
     if result.returncode == 0:
         wasm = find_wasm(name)
         if wasm:
-            log(f"  [OK] sc-meta build reusit: {wasm}", "green")
+            log(f"  [OK] sc-meta build: {wasm}", "green")
             return True
 
     # Fallback: cargo build direct
-    log(f"  [INFO] Folosesc cargo build direct...", "yellow")
+    log(f"  [INFO] Folosesc cargo build...", "yellow")
     result = run(
         ["cargo", "build", "--target", "wasm32-unknown-unknown", "--release",
          "--manifest-path", str(contract_dir / "Cargo.toml")],
         check=False
     )
-    # returncode=0 = succes (warnings in stderr sunt normale!)
-    if result.returncode == 0:
+    if result.returncode == 0:  # 0 = succes, warnings in stderr sunt normale
         wasm = find_wasm(name)
         if wasm:
-            log(f"  [OK] cargo build reusit: {wasm}", "green")
+            log(f"  [OK] cargo build: {wasm}", "green")
             return True
+        # WASM inca nu e gasit - listeaza target/ pentru debug
+        target_release = ROOT / "target" / "wasm32-unknown-unknown" / "release"
+        if target_release.exists():
+            all_wasm = list(target_release.glob("*.wasm"))
+            log(f"  [DEBUG] WASM in target/release: {[f.name for f in all_wasm]}", "yellow")
         else:
-            log(f"  [WARN] Build OK dar WASM nu a fost gasit in target/", "yellow")
-            # Afiseaza unde a compilat
-            log(f"  Stdout: {result.stdout[-500:]}", "yellow")
+            log(f"  [DEBUG] target/wasm32-unknown-unknown/release/ nu exista", "yellow")
+            log(f"  [DEBUG] ROOT={ROOT}", "yellow")
     else:
-        # Eroare reala de compilare
         log(f"  [ERROR] Build esuat (returncode={result.returncode})", "red")
-        log(f"  Stderr: {result.stderr[-500:]}", "red")
+        log(f"  {result.stderr[-600:]}", "red")
 
     return False
 
@@ -112,8 +117,7 @@ def deploy_contract(name, args=None):
         log(f"  [SKIP] {name}.wasm nu exista - skip deploy", "yellow")
         return None
 
-    log(f"\n[DEPLOY] {name}...", "blue")
-    log(f"  wasm: {wasm}", "blue")
+    log(f"\n[DEPLOY] {name} <- {wasm}", "blue")
 
     cmd = [
         "mxpy", "contract", "deploy",
@@ -138,7 +142,7 @@ def deploy_contract(name, args=None):
             addr = (data.get("contractAddress") or
                     data.get("data", {}).get("transaction", {}).get("contractAddress", "") or "")
             if addr:
-                log(f"  [OK] {name} deployed: {addr}", "green")
+                log(f"  [OK] {name} -> {addr}", "green")
                 out_file.unlink()
                 return addr
         except:
@@ -148,12 +152,12 @@ def deploy_contract(name, args=None):
     match = re.search(r"erd1[a-z0-9]{58}", stdout)
     if match:
         addr = match.group(0)
-        log(f"  [OK] {name} deployed: {addr}", "green")
+        log(f"  [OK] {name} -> {addr}", "green")
         return addr
 
-    log(f"  [WARN] {name} - adresa nu a putut fi determinata", "yellow")
-    log(f"  Stdout: {result.stdout[:500]}", "yellow")
-    log(f"  Stderr: {result.stderr[:500]}", "yellow")
+    log(f"  [WARN] {name} - adresa nedeterminata", "yellow")
+    log(f"  Stdout: {result.stdout[:400]}", "yellow")
+    log(f"  Stderr: {result.stderr[:400]}", "yellow")
     return None
 
 def patch_env(addresses):
@@ -183,17 +187,13 @@ def patch_env(addresses):
 
 def check_balance():
     import urllib.request
-    if not PEM_FILE.exists():
-        log("[ERROR] deployer.pem nu exista!", "red")
-        log("Ruleaza: python devnet/wallet_setup_windows.py", "yellow")
-        return False
     pem_content = PEM_FILE.read_text()
     match = re.search(r"erd1[a-z0-9]{58}", pem_content)
     if not match:
         log("[WARN] Nu pot citi adresa din PEM", "yellow")
         return None
     address = match.group(0)
-    log(f"\n[CHECK] Verificare balanta pentru {address}...", "blue")
+    log(f"\n[CHECK] Balanta pentru {address}...", "blue")
     try:
         url = f"https://devnet-api.multiversx.com/accounts/{address}"
         with urllib.request.urlopen(url, timeout=10) as r:
@@ -214,7 +214,7 @@ def main():
     log("=" * 60, "green")
 
     if not PEM_FILE.exists():
-        log(f"\n[ERROR] {PEM_FILE} nu exista!", "red")
+        log(f"[ERROR] {PEM_FILE} nu exista!", "red")
         log("Ruleaza: python devnet/wallet_setup_windows.py", "yellow")
         sys.exit(1)
 
@@ -223,7 +223,6 @@ def main():
         sys.exit(1)
 
     addresses = {}
-
     for name in ["registry", "reputation", "escrow", "token", "dao"]:
         build_contract(name)
         addr = deploy_contract(name)
@@ -233,17 +232,16 @@ def main():
 
     if addresses:
         ADDRESSES_FILE.write_text(json.dumps(addresses, indent=2))
-        log(f"\n[SAVED] Adrese salvate in {ADDRESSES_FILE}", "green")
+        log(f"\n[SAVED] {ADDRESSES_FILE}", "green")
         log(json.dumps(addresses, indent=2), "green")
-        log("\n[PATCH] Actualizez .env files...", "blue")
         patch_env(addresses)
     else:
         log("\n[WARN] Nicio adresa deployata", "yellow")
-        log("  Verifica: mxpy --version (pip install mxpy daca lipseste)", "yellow")
+        log("  Verifica: mxpy --version", "yellow")
+        log("  Instalare: pip install mxpy", "yellow")
 
     log("\n" + "=" * 60, "green")
-    log("  Deploy complet!", "green")
-    log("  Explorer: https://devnet-explorer.multiversx.com", "green")
+    log("  Deploy complet! Explorer: https://devnet-explorer.multiversx.com", "green")
     log("=" * 60, "green")
 
 if __name__ == "__main__":

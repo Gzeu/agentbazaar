@@ -4,20 +4,12 @@ multiversx_sc::imports!();
 multiversx_sc::derive_imports!();
 
 /// AgentBazaar $BAZAAR Token Contract
-/// Issues and manages the $BAZAAR ESDT utility token.
-/// Features:
-///   - Initial issuance by owner
-///   - Mint by owner (ecosystem rewards)
-///   - Burn by any holder
-///   - Staking: lock BAZAAR for reputation boost + fee discounts
-///   - Fee discount tiers: 100 BAZAAR = 10%, 1000 = 25%, 10000 = 50%
 #[multiversx_sc::contract]
 pub trait AgentBazaarToken {
     #[init]
     fn init(&self) {}
 
     // ------------------------------------------------------------ Issue
-    /// Issue $BAZAAR ESDT. Call with EGLD (0.05 EGLD issuance fee).
     #[payable("EGLD")]
     #[endpoint(issueToken)]
     fn issue_token(
@@ -27,11 +19,11 @@ pub trait AgentBazaarToken {
         initial_supply: BigUint,
     ) {
         self.require_owner();
-        let payment = self.call_value().egld_value();
+        let payment = self.call_value().egld_value().clone_value();
         self.send()
             .esdt_system_sc_proxy()
             .issue_fungible(
-                payment.clone_value(),
+                payment,
                 &token_display_name,
                 &token_ticker,
                 &initial_supply,
@@ -79,41 +71,42 @@ pub trait AgentBazaarToken {
     #[payable("*")]
     #[endpoint(burnTokens)]
     fn burn_tokens(&self) {
-        let (token_id, _, amount) = self.call_value().single_esdt().into_tuple();
+        let payment = self.call_value().single_esdt();
+        let token_id = payment.token_identifier.clone();
+        let amount = payment.amount.clone();
         require!(token_id == self.bazaar_token_id().get(), "Wrong token");
         self.send().esdt_local_burn(&token_id, 0, &amount);
     }
 
     // ------------------------------------------------------------ Stake
-    /// Stake BAZAAR tokens for fee discount + reputation boost.
     #[payable("*")]
     #[endpoint(stakeForDiscount)]
     fn stake_for_discount(&self) {
-        let (token_id, _, amount) = self.call_value().single_esdt().into_tuple();
+        let payment = self.call_value().single_esdt();
+        let token_id = payment.token_identifier.clone();
+        let amount = payment.amount.clone();
         require!(token_id == self.bazaar_token_id().get(), "Wrong token");
         let caller = self.blockchain().get_caller();
         let current = self.staked_balance(&caller).get();
-        self.staked_balance(&caller).set(current + amount.clone());
+        self.staked_balance(&caller).set(current + &amount);
         self.stake_event(&caller, &amount);
     }
 
-    /// Unstake BAZAAR tokens.
     #[endpoint(unstake)]
     fn unstake(&self, amount: BigUint) {
         let caller = self.blockchain().get_caller();
         let current = self.staked_balance(&caller).get();
         require!(current >= amount, "Insufficient stake");
-        self.staked_balance(&caller).set(current - amount.clone());
+        self.staked_balance(&caller).set(&current - &amount);
         let token_id = self.bazaar_token_id().get();
         self.send().direct_esdt(&caller, &token_id, 0, &amount);
         self.unstake_event(&caller, &amount);
     }
 
-    /// Get fee discount tier for address (bps): 0 / 1000 / 2500 / 5000
     #[view(getFeeDiscount)]
     fn get_fee_discount(&self, address: ManagedAddress) -> u64 {
         let staked = self.staked_balance(&address).get();
-        let one = BigUint::from(1_000_000_000_000_000_000u64); // 1 BAZAAR
+        let one = BigUint::from(1_000_000_000_000_000_000u64);
         if staked >= one.clone() * 10_000u32 { return 5000; }
         if staked >= one.clone() * 1_000u32  { return 2500; }
         if staked >= one.clone() * 100u32    { return 1000; }
@@ -145,7 +138,6 @@ pub trait AgentBazaarToken {
     #[event("unstake")]
     fn unstake_event(&self, #[indexed] address: &ManagedAddress, amount: &BigUint);
 
-    // ------------------------------------------------------------ Internal
     fn require_owner(&self) {
         require!(
             self.blockchain().get_caller() == self.blockchain().get_owner_address(),
