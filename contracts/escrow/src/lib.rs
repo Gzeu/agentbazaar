@@ -1,7 +1,12 @@
 #![no_std]
 
+multiversx_sc_wasm_adapter::allocator!();
+multiversx_sc_wasm_adapter::panic_handler!();
+
 multiversx_sc::imports!();
 multiversx_sc::derive_imports!();
+
+use multiversx_sc::types::TimestampSeconds;
 
 #[derive(TopEncode, TopDecode, NestedEncode, NestedDecode, PartialEq, Clone)]
 #[type_abi]
@@ -17,12 +22,12 @@ pub struct TaskRecord<M: ManagedTypeApi> {
     pub status: TaskStatus,
     pub payload_hash: ManagedBuffer<M>,
     pub proof_hash: ManagedBuffer<M>,
-    pub created_at: u64,
-    pub completed_at: u64,
+    pub created_at: TimestampSeconds,
+    pub completed_at: TimestampSeconds,
 }
 
-pub const DISPUTE_WINDOW: u64 = 3600;
-pub const TASK_TIMEOUT: u64 = 300;
+pub const DISPUTE_WINDOW: TimestampSeconds = TimestampSeconds(3600);
+pub const TASK_TIMEOUT: TimestampSeconds = TimestampSeconds(300);
 
 #[multiversx_sc::contract]
 pub trait EscrowContract {
@@ -56,8 +61,8 @@ pub trait EscrowContract {
     #[event("disputeResolved")]
     fn emit_dispute_resolved(&self, #[indexed] task_id: &ManagedBuffer, #[indexed] winner: &ManagedAddress);
 
-    fn now_u64(&self) -> u64 {
-        self.blockchain().get_block_timestamp_seconds().0
+    fn now(&self) -> TimestampSeconds {
+        self.blockchain().get_block_timestamp_seconds()
     }
 
     #[payable("EGLD")]
@@ -67,12 +72,11 @@ pub trait EscrowContract {
         let payment = self.call_value().egld().clone_value();
         require!(payment > BigUint::zero(), "Must attach EGLD payment");
         let caller = self.blockchain().get_caller();
-        let now = self.now_u64();
         let record = TaskRecord {
             buyer: caller.clone(), provider: provider.clone(), service_id: service_id.clone(),
             amount: payment.clone(), status: TaskStatus::Pending,
             payload_hash: payload_hash.clone(), proof_hash: ManagedBuffer::new(),
-            created_at: now, completed_at: 0u64,
+            created_at: self.now(), completed_at: TimestampSeconds(0),
         };
         self.tasks().insert(task_id.clone(), record);
         self.emit_task_created(&task_id, &caller, &provider);
@@ -84,10 +88,9 @@ pub trait EscrowContract {
         let mut record = self.tasks().get(&task_id).unwrap_or_else(|| sc_panic!("Task not found"));
         require!(record.provider == caller, "Not task provider");
         require!(record.status == TaskStatus::Pending, "Task not in Pending state");
-        let now = self.now_u64();
         record.status = TaskStatus::Completed;
         record.proof_hash = proof_hash.clone();
-        record.completed_at = now;
+        record.completed_at = self.now();
         let amount = record.amount.clone();
         self.tasks().insert(task_id.clone(), record);
         self.send().direct_egld(&caller, &amount);
@@ -100,8 +103,7 @@ pub trait EscrowContract {
         let mut record = self.tasks().get(&task_id).unwrap_or_else(|| sc_panic!("Task not found"));
         require!(record.buyer == caller, "Not task buyer");
         require!(record.status == TaskStatus::Pending, "Task not in Pending state");
-        let now = self.now_u64();
-        require!(now >= record.created_at + TASK_TIMEOUT, "Task timeout not reached yet");
+        require!(self.now() >= record.created_at + TASK_TIMEOUT, "Task timeout not reached yet");
         let amount = record.amount.clone();
         record.status = TaskStatus::Refunded;
         self.tasks().insert(task_id.clone(), record);
@@ -115,9 +117,8 @@ pub trait EscrowContract {
         let mut record = self.tasks().get(&task_id).unwrap_or_else(|| sc_panic!("Task not found"));
         require!(record.buyer == caller || record.provider == caller, "Not task participant");
         require!(record.status == TaskStatus::Pending || record.status == TaskStatus::Completed, "Cannot dispute in current state");
-        let now = self.now_u64();
         if record.status == TaskStatus::Completed {
-            require!(now <= record.completed_at + DISPUTE_WINDOW, "Dispute window expired");
+            require!(self.now() <= record.completed_at + DISPUTE_WINDOW, "Dispute window expired");
         }
         record.status = TaskStatus::Disputed;
         self.tasks().insert(task_id.clone(), record);

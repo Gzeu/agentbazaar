@@ -1,7 +1,12 @@
 #![no_std]
 
+multiversx_sc_wasm_adapter::allocator!();
+multiversx_sc_wasm_adapter::panic_handler!();
+
 multiversx_sc::imports!();
 multiversx_sc::derive_imports!();
+
+use multiversx_sc::types::TimestampSeconds;
 
 #[derive(TopEncode, TopDecode, NestedEncode, NestedDecode, TypeAbi, Clone)]
 pub struct Proposal<M: ManagedTypeApi> {
@@ -11,8 +16,8 @@ pub struct Proposal<M: ManagedTypeApi> {
     pub yes_votes: BigUint<M>,
     pub no_votes: BigUint<M>,
     pub executed: bool,
-    pub created_at: u64,
-    pub execute_after: u64,
+    pub created_at: TimestampSeconds,
+    pub execute_after: TimestampSeconds,
 }
 
 #[multiversx_sc::contract]
@@ -26,8 +31,8 @@ pub trait AgentBazaarDAO {
         self.proposal_count().set(0u64);
     }
 
-    fn now_u64(&self) -> u64 {
-        self.blockchain().get_block_timestamp_seconds().0
+    fn now(&self) -> TimestampSeconds {
+        self.blockchain().get_block_timestamp_seconds()
     }
 
     #[payable("EGLD")]
@@ -50,12 +55,14 @@ pub trait AgentBazaarDAO {
     #[endpoint(createProposal)]
     fn create_proposal(&self, description: ManagedBuffer) -> u64 {
         let id = self.proposal_count().get() + 1;
-        let now = self.now_u64();
+        let now = self.now();
+        let vote_dur = TimestampSeconds(self.vote_duration().get());
+        let exec_del = TimestampSeconds(self.exec_delay().get());
         let proposal = Proposal {
             id, proposer: self.blockchain().get_caller(), description,
             yes_votes: BigUint::zero(), no_votes: BigUint::zero(), executed: false,
             created_at: now,
-            execute_after: now + self.vote_duration().get() + self.exec_delay().get(),
+            execute_after: now + vote_dur + exec_del,
         };
         self.proposals(id).set(proposal);
         self.proposal_count().set(id);
@@ -70,8 +77,9 @@ pub trait AgentBazaarDAO {
         let voting_power = self.voting_power(&caller).get();
         require!(voting_power > BigUint::zero(), "No voting power");
         let mut proposal = self.proposals(proposal_id).get();
-        let now = self.now_u64();
-        require!(now < proposal.created_at + self.vote_duration().get(), "Voting closed");
+        let now = self.now();
+        let vote_dur = TimestampSeconds(self.vote_duration().get());
+        require!(now < proposal.created_at + vote_dur, "Voting closed");
         if in_favor { proposal.yes_votes += voting_power; } else { proposal.no_votes += voting_power; }
         self.proposals(proposal_id).set(proposal);
         self.has_voted(proposal_id, &caller).set(true);

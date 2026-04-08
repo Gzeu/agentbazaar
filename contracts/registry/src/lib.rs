@@ -1,7 +1,12 @@
 #![no_std]
 
+multiversx_sc_wasm_adapter::allocator!();
+multiversx_sc_wasm_adapter::panic_handler!();
+
 multiversx_sc::imports!();
 multiversx_sc::derive_imports!();
+
+use multiversx_sc::types::TimestampSeconds;
 
 #[derive(TopEncode, TopDecode, NestedEncode, NestedDecode, ManagedVecItem, Clone)]
 #[type_abi]
@@ -15,7 +20,7 @@ pub struct ServiceRecord<M: ManagedTypeApi> {
     pub metadata_uri: ManagedBuffer<M>,
     pub stake: BigUint<M>,
     pub active: bool,
-    pub registered_at: u64,
+    pub registered_at: TimestampSeconds,
 }
 
 pub const MIN_STAKE: u64 = 50_000_000_000_000_000;
@@ -98,7 +103,7 @@ pub trait RegistryContract {
             metadata_uri: metadata_uri.clone(),
             stake: payment.clone(),
             active: true,
-            registered_at: self.blockchain().get_block_timestamp_seconds().0,
+            registered_at: self.blockchain().get_block_timestamp_seconds(),
         };
         self.services().insert(service_id.clone(), record);
         self.provider_services(&caller).insert(service_id.clone());
