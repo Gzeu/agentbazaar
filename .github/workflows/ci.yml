@@ -1,0 +1,57 @@
+name: CI
+
+on:
+  push:
+    branches: [main, develop]
+  pull_request:
+    branches: [main]
+
+jobs:
+  lint-and-build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Lint
+        run: npm run lint --if-present
+
+      - name: Build SDK
+        run: npm run build --workspace=packages/sdk-ts --if-present
+
+  contracts-check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust
+        uses: actions-rs/toolchain@v1
+        with:
+          toolchain: stable
+          target: wasm32-unknown-unknown
+
+      - name: Check registry contract
+        run: |
+          if [ -f contracts/registry/Cargo.toml ]; then
+            cd contracts/registry && cargo check
+          fi
+
+      - name: Check escrow contract
+        run: |
+          if [ -f contracts/escrow/Cargo.toml ]; then
+            cd contracts/escrow && cargo check
+          fi
+
+      - name: Check reputation contract
+        run: |
+          if [ -f contracts/reputation/Cargo.toml ]; then
+            cd contracts/reputation && cargo check
+          fi

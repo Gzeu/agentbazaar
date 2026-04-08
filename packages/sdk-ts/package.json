@@ -1,0 +1,19 @@
+{
+  "name": "@agentbazaar/sdk-ts",
+  "version": "0.1.0",
+  "description": "AgentBazaar TypeScript SDK — AI Agent marketplace on MultiversX",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "scripts": {
+    "build": "tsc",
+    "dev": "tsc --watch",
+    "lint": "eslint src --ext .ts"
+  },
+  "dependencies": {
+    "@multiversx/sdk-core": "^13.0.0",
+    "@multiversx/sdk-network-providers": "^2.0.0"
+  },
+  "devDependencies": {
+    "typescript": "^5.4.0"
+  }
+}
