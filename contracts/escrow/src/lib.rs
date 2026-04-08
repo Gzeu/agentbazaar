@@ -5,12 +5,7 @@ multiversx_sc::derive_imports!();
 
 #[derive(TopEncode, TopDecode, NestedEncode, NestedDecode, PartialEq, Clone)]
 #[type_abi]
-pub enum TaskStatus {
-    Pending,
-    Completed,
-    Refunded,
-    Disputed,
-}
+pub enum TaskStatus { Pending, Completed, Refunded, Disputed }
 
 #[derive(TopEncode, TopDecode, NestedEncode, NestedDecode, Clone)]
 #[type_abi]
@@ -43,78 +38,37 @@ pub trait EscrowContract {
 
     #[storage_mapper("tasks")]
     fn tasks(&self) -> MapMapper<ManagedBuffer, TaskRecord<Self::Api>>;
-
     #[storage_mapper("registryAddress")]
     fn registry_address(&self) -> SingleValueMapper<ManagedAddress>;
-
     #[storage_mapper("reputationAddress")]
     fn reputation_address(&self) -> SingleValueMapper<ManagedAddress>;
-
     #[storage_mapper("owner")]
     fn owner(&self) -> SingleValueMapper<ManagedAddress>;
 
     #[event("taskCreated")]
-    fn emit_task_created(
-        &self,
-        #[indexed] task_id: &ManagedBuffer,
-        #[indexed] buyer: &ManagedAddress,
-        #[indexed] provider: &ManagedAddress,
-    );
-
+    fn emit_task_created(&self, #[indexed] task_id: &ManagedBuffer, #[indexed] buyer: &ManagedAddress, #[indexed] provider: &ManagedAddress);
     #[event("taskCompleted")]
-    fn emit_task_completed(
-        &self,
-        #[indexed] task_id: &ManagedBuffer,
-        #[indexed] provider: &ManagedAddress,
-        proof_hash: &ManagedBuffer,
-    );
-
+    fn emit_task_completed(&self, #[indexed] task_id: &ManagedBuffer, #[indexed] provider: &ManagedAddress, proof_hash: &ManagedBuffer);
     #[event("taskRefunded")]
-    fn emit_task_refunded(
-        &self,
-        #[indexed] task_id: &ManagedBuffer,
-        #[indexed] buyer: &ManagedAddress,
-    );
-
+    fn emit_task_refunded(&self, #[indexed] task_id: &ManagedBuffer, #[indexed] buyer: &ManagedAddress);
     #[event("disputeOpened")]
-    fn emit_dispute_opened(
-        &self,
-        #[indexed] task_id: &ManagedBuffer,
-        #[indexed] opener: &ManagedAddress,
-        reason: &ManagedBuffer,
-    );
-
+    fn emit_dispute_opened(&self, #[indexed] task_id: &ManagedBuffer, #[indexed] opener: &ManagedAddress, reason: &ManagedBuffer);
     #[event("disputeResolved")]
-    fn emit_dispute_resolved(
-        &self,
-        #[indexed] task_id: &ManagedBuffer,
-        #[indexed] winner: &ManagedAddress,
-    );
+    fn emit_dispute_resolved(&self, #[indexed] task_id: &ManagedBuffer, #[indexed] winner: &ManagedAddress);
 
     #[payable("EGLD")]
     #[endpoint(createTask)]
-    fn create_task(
-        &self,
-        task_id: ManagedBuffer,
-        service_id: ManagedBuffer,
-        provider: ManagedAddress,
-        payload_hash: ManagedBuffer,
-    ) {
+    fn create_task(&self, task_id: ManagedBuffer, service_id: ManagedBuffer, provider: ManagedAddress, payload_hash: ManagedBuffer) {
         require!(!self.tasks().contains_key(&task_id), "Task ID already exists");
         let payment = self.call_value().egld().clone_value();
         require!(payment > BigUint::zero(), "Must attach EGLD payment");
         let caller = self.blockchain().get_caller();
-        let now = self.blockchain().get_block_timestamp_seconds();
+        let now: u64 = self.blockchain().get_block_timestamp_seconds().into();
         let record = TaskRecord {
-            buyer: caller.clone(),
-            provider: provider.clone(),
-            service_id: service_id.clone(),
-            amount: payment.clone(),
-            status: TaskStatus::Pending,
-            payload_hash: payload_hash.clone(),
-            proof_hash: ManagedBuffer::new(),
-            created_at: now,
-            completed_at: 0u64,
+            buyer: caller.clone(), provider: provider.clone(), service_id: service_id.clone(),
+            amount: payment.clone(), status: TaskStatus::Pending,
+            payload_hash: payload_hash.clone(), proof_hash: ManagedBuffer::new(),
+            created_at: now, completed_at: 0u64,
         };
         self.tasks().insert(task_id.clone(), record);
         self.emit_task_created(&task_id, &caller, &provider);
@@ -123,11 +77,10 @@ pub trait EscrowContract {
     #[endpoint(releaseEscrow)]
     fn release_escrow(&self, task_id: ManagedBuffer, proof_hash: ManagedBuffer) {
         let caller = self.blockchain().get_caller();
-        let mut record = self.tasks().get(&task_id)
-            .unwrap_or_else(|| sc_panic!("Task not found"));
+        let mut record = self.tasks().get(&task_id).unwrap_or_else(|| sc_panic!("Task not found"));
         require!(record.provider == caller, "Not task provider");
         require!(record.status == TaskStatus::Pending, "Task not in Pending state");
-        let now = self.blockchain().get_block_timestamp_seconds();
+        let now: u64 = self.blockchain().get_block_timestamp_seconds().into();
         record.status = TaskStatus::Completed;
         record.proof_hash = proof_hash.clone();
         record.completed_at = now;
@@ -140,11 +93,10 @@ pub trait EscrowContract {
     #[endpoint(refundTask)]
     fn refund_task(&self, task_id: ManagedBuffer) {
         let caller = self.blockchain().get_caller();
-        let mut record = self.tasks().get(&task_id)
-            .unwrap_or_else(|| sc_panic!("Task not found"));
+        let mut record = self.tasks().get(&task_id).unwrap_or_else(|| sc_panic!("Task not found"));
         require!(record.buyer == caller, "Not task buyer");
         require!(record.status == TaskStatus::Pending, "Task not in Pending state");
-        let now = self.blockchain().get_block_timestamp_seconds();
+        let now: u64 = self.blockchain().get_block_timestamp_seconds().into();
         require!(now >= record.created_at + TASK_TIMEOUT, "Task timeout not reached yet");
         let amount = record.amount.clone();
         record.status = TaskStatus::Refunded;
@@ -156,17 +108,10 @@ pub trait EscrowContract {
     #[endpoint(openDispute)]
     fn open_dispute(&self, task_id: ManagedBuffer, reason: ManagedBuffer) {
         let caller = self.blockchain().get_caller();
-        let mut record = self.tasks().get(&task_id)
-            .unwrap_or_else(|| sc_panic!("Task not found"));
-        require!(
-            record.buyer == caller || record.provider == caller,
-            "Not task participant"
-        );
-        require!(
-            record.status == TaskStatus::Pending || record.status == TaskStatus::Completed,
-            "Cannot dispute in current state"
-        );
-        let now = self.blockchain().get_block_timestamp_seconds();
+        let mut record = self.tasks().get(&task_id).unwrap_or_else(|| sc_panic!("Task not found"));
+        require!(record.buyer == caller || record.provider == caller, "Not task participant");
+        require!(record.status == TaskStatus::Pending || record.status == TaskStatus::Completed, "Cannot dispute in current state");
+        let now: u64 = self.blockchain().get_block_timestamp_seconds().into();
         if record.status == TaskStatus::Completed {
             require!(now <= record.completed_at + DISPUTE_WINDOW, "Dispute window expired");
         }
@@ -178,8 +123,7 @@ pub trait EscrowContract {
     #[endpoint(resolveDispute)]
     fn resolve_dispute(&self, task_id: ManagedBuffer, winner: ManagedAddress) {
         require!(self.blockchain().get_caller() == self.owner().get(), "Not owner");
-        let mut record = self.tasks().get(&task_id)
-            .unwrap_or_else(|| sc_panic!("Task not found"));
+        let mut record = self.tasks().get(&task_id).unwrap_or_else(|| sc_panic!("Task not found"));
         require!(record.status == TaskStatus::Disputed, "Task not disputed");
         let amount = record.amount.clone();
         record.status = TaskStatus::Completed;

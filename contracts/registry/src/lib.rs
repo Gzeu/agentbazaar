@@ -87,7 +87,6 @@ pub trait RegistryContract {
             !self.services().contains_key(&service_id),
             "Service ID already registered"
         );
-
         let caller = self.blockchain().get_caller();
         let record = ServiceRecord {
             provider: caller.clone(),
@@ -99,21 +98,15 @@ pub trait RegistryContract {
             metadata_uri: metadata_uri.clone(),
             stake: payment.clone(),
             active: true,
-            registered_at: self.blockchain().get_block_timestamp_seconds(),
+            registered_at: self.blockchain().get_block_timestamp_seconds().into(),
         };
-
         self.services().insert(service_id.clone(), record);
         self.provider_services(&caller).insert(service_id.clone());
         self.emit_service_registered(&service_id, &caller, &name);
     }
 
     #[endpoint(updateService)]
-    fn update_service(
-        &self,
-        service_id: ManagedBuffer,
-        new_price: BigUint,
-        active: bool,
-    ) {
+    fn update_service(&self, service_id: ManagedBuffer, new_price: BigUint, active: bool) {
         let caller = self.blockchain().get_caller();
         let mut record = self.services().get(&service_id)
             .unwrap_or_else(|| sc_panic!("Service not found"));
@@ -157,9 +150,7 @@ pub trait RegistryContract {
     }
 
     #[view(getMarketplaceFeeBps)]
-    fn get_marketplace_fee_bps(&self) -> u64 {
-        self.marketplace_fee_bps().get()
-    }
+    fn get_marketplace_fee_bps(&self) -> u64 { self.marketplace_fee_bps().get() }
 
     #[view(serviceExists)]
     fn service_exists(&self, service_id: ManagedBuffer) -> bool {

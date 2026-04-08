@@ -25,27 +25,25 @@ pub trait ReputationContract {
 
     #[storage_mapper("reputation")]
     fn reputation(&self, agent: &ManagedAddress) -> SingleValueMapper<AgentReputation<Self::Api>>;
-
     #[storage_mapper("minStake")]
     fn min_stake(&self) -> SingleValueMapper<BigUint<Self::Api>>;
 
     #[event("scoreUpdated")]
     fn emit_score_updated(&self, #[indexed] agent: &ManagedAddress, score: u64);
-
     #[event("agentSlashed")]
     fn emit_agent_slashed(&self, #[indexed] agent: &ManagedAddress, amount: &BigUint);
+
+    fn now_u64(&self) -> u64 {
+        self.blockchain().get_block_timestamp_seconds().into()
+    }
 
     fn get_or_create_reputation(&self, agent: &ManagedAddress) -> AgentReputation<Self::Api> {
         if self.reputation(agent).is_empty() {
             AgentReputation {
-                total_tasks: 0,
-                successful_tasks: 0,
-                failed_tasks: 0,
-                disputes: 0,
-                total_latency_ms: 0,
-                stake: BigUint::zero(),
-                score: 50,
-                last_updated: self.blockchain().get_block_timestamp_seconds(),
+                total_tasks: 0, successful_tasks: 0, failed_tasks: 0,
+                disputes: 0, total_latency_ms: 0,
+                stake: BigUint::zero(), score: 50,
+                last_updated: self.now_u64(),
             }
         } else {
             self.reputation(agent).get()
@@ -53,10 +51,7 @@ pub trait ReputationContract {
     }
 
     fn recalculate_score(&self, rep: &mut AgentReputation<Self::Api>) {
-        if rep.total_tasks == 0 {
-            rep.score = 50;
-            return;
-        }
+        if rep.total_tasks == 0 { rep.score = 50; return; }
         let completion_bp = rep.successful_tasks * 10_000u64 / rep.total_tasks;
         let base = completion_bp * 70u64 / 10_000u64;
         let egld_unit = BigUint::from(1_000_000_000_000_000_000u64);
@@ -77,10 +72,8 @@ pub trait ReputationContract {
     #[endpoint(recordSuccess)]
     fn record_success(&self, agent: ManagedAddress, latency_ms: u64) {
         let mut rep = self.get_or_create_reputation(&agent);
-        rep.total_tasks += 1;
-        rep.successful_tasks += 1;
-        rep.total_latency_ms += latency_ms;
-        rep.last_updated = self.blockchain().get_block_timestamp_seconds();
+        rep.total_tasks += 1; rep.successful_tasks += 1; rep.total_latency_ms += latency_ms;
+        rep.last_updated = self.now_u64();
         self.recalculate_score(&mut rep);
         self.reputation(&agent).set(&rep);
         self.emit_score_updated(&agent, rep.score);
@@ -89,9 +82,8 @@ pub trait ReputationContract {
     #[endpoint(recordFailure)]
     fn record_failure(&self, agent: ManagedAddress) {
         let mut rep = self.get_or_create_reputation(&agent);
-        rep.total_tasks += 1;
-        rep.failed_tasks += 1;
-        rep.last_updated = self.blockchain().get_block_timestamp_seconds();
+        rep.total_tasks += 1; rep.failed_tasks += 1;
+        rep.last_updated = self.now_u64();
         self.recalculate_score(&mut rep);
         self.reputation(&agent).set(&rep);
         self.emit_score_updated(&agent, rep.score);
@@ -100,8 +92,7 @@ pub trait ReputationContract {
     #[endpoint(recordDispute)]
     fn record_dispute(&self, agent: ManagedAddress) {
         let mut rep = self.get_or_create_reputation(&agent);
-        rep.disputes += 1;
-        rep.last_updated = self.blockchain().get_block_timestamp_seconds();
+        rep.disputes += 1; rep.last_updated = self.now_u64();
         self.recalculate_score(&mut rep);
         self.reputation(&agent).set(&rep);
         self.emit_score_updated(&agent, rep.score);
@@ -111,8 +102,7 @@ pub trait ReputationContract {
     fn update_stake(&self, amount: BigUint) {
         let caller = self.blockchain().get_caller();
         let mut rep = self.get_or_create_reputation(&caller);
-        rep.stake = amount.clone();
-        rep.last_updated = self.blockchain().get_block_timestamp_seconds();
+        rep.stake = amount.clone(); rep.last_updated = self.now_u64();
         self.recalculate_score(&mut rep);
         self.reputation(&caller).set(&rep);
         self.emit_score_updated(&caller, rep.score);
@@ -122,8 +112,7 @@ pub trait ReputationContract {
     fn slash_agent(&self, agent: ManagedAddress, amount: BigUint) {
         require!(self.blockchain().get_caller() == self.blockchain().get_owner_address(), "Not authorized");
         let mut rep = self.get_or_create_reputation(&agent);
-        rep.disputes += 1;
-        rep.last_updated = self.blockchain().get_block_timestamp_seconds();
+        rep.disputes += 1; rep.last_updated = self.now_u64();
         self.recalculate_score(&mut rep);
         self.reputation(&agent).set(&rep);
         if amount > BigUint::zero() {
@@ -134,11 +123,8 @@ pub trait ReputationContract {
 
     #[view(getReputation)]
     fn get_reputation(&self, agent: ManagedAddress) -> OptionalValue<AgentReputation<Self::Api>> {
-        if self.reputation(&agent).is_empty() {
-            OptionalValue::None
-        } else {
-            OptionalValue::Some(self.reputation(&agent).get())
-        }
+        if self.reputation(&agent).is_empty() { OptionalValue::None }
+        else { OptionalValue::Some(self.reputation(&agent).get()) }
     }
 
     #[view(getScore)]
@@ -147,7 +133,5 @@ pub trait ReputationContract {
     }
 
     #[view(getMinStake)]
-    fn get_min_stake(&self) -> BigUint<Self::Api> {
-        self.min_stake().get()
-    }
+    fn get_min_stake(&self) -> BigUint<Self::Api> { self.min_stake().get() }
 }
