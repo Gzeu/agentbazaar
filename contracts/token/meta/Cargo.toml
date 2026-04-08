@@ -1,11 +1,11 @@
 [package]
-name = "escrow-meta"
+name = "token-meta"
 version = "0.1.0"
 edition = "2021"
 publish = false
 
 [[bin]]
-name = "escrow-meta"
+name = "token-meta"
 path = "src/main.rs"
 
 [dependencies.multiversx-sc-meta]

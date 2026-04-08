@@ -2,7 +2,12 @@
 name = "reputation-meta"
 version = "0.1.0"
 edition = "2021"
+publish = false
 
-[dependencies]
-multiversx-sc-meta = "0.53"
-reputation = { path = ".." }
+[[bin]]
+name = "reputation-meta"
+path = "src/main.rs"
+
+[dependencies.multiversx-sc-meta]
+version = "0.65.1"
+default-features = false

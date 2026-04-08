@@ -2,6 +2,7 @@
 name = "escrow"
 version = "0.1.0"
 edition = "2021"
+publish = false
 
 [lib]
 path = "src/lib.rs"
@@ -10,14 +11,14 @@ path = "src/lib.rs"
 default = []
 
 [dependencies.multiversx-sc]
-version = "0.54.0"
-
-[dependencies.multiversx-sc-meta-lib]
-version = "0.54.0"
+version = "0.65.1"
+features = []
 
 [dev-dependencies.multiversx-sc-scenario]
-version = "0.54.0"
+version = "0.65.1"
 
-[[bin]]
-name = "escrow-meta"
-path = "meta/main.rs"
+[workspace]
+members = [
+    ".",
+    "meta",
+]
