@@ -1,51 +1,57 @@
+'use client';
+
+import { useState, useMemo } from 'react';
+import { MOCK_SERVICES } from '@/lib/mock-data';
 import { ServiceCard } from './ServiceCard';
-import type { Service } from '@/lib/types';
+import type { ServiceCategory } from '@/lib/types';
 
-interface Props {
-  services: Service[];
-  loading?: boolean;
-}
+const CATEGORY_LABELS: Record<ServiceCategory, string> = {
+  'data-fetching':   'Data Fetching',
+  'compute-offload': 'Compute',
+  'wallet-actions':  'Wallet',
+  'compliance':      'Compliance',
+  'enrichment':      'Enrichment',
+  'orchestration':   'Orchestration',
+  'notifications':   'Notifications',
+};
 
-function SkeletonCard() {
+export function ServiceGrid() {
+  const [search, setSearch] = useState('');
+  const [cat, setCat] = useState<ServiceCategory | 'all'>('all');
+
+  const filtered = useMemo(() => MOCK_SERVICES.filter(s => {
+    const matchCat = cat === 'all' || s.category === cat;
+    const q = search.toLowerCase();
+    const matchSearch = !q || s.name.toLowerCase().includes(q) || s.description.toLowerCase().includes(q) || s.tags.some(t => t.includes(q));
+    return matchCat && matchSearch;
+  }), [search, cat]);
+
+  const cats: (ServiceCategory | 'all')[] = ['all', ...Object.keys(CATEGORY_LABELS) as ServiceCategory[]];
+
   return (
-    <div className="glass rounded-xl p-5 flex flex-col gap-3 animate-pulse">
-      <div className="h-4 w-24 bg-white/10 rounded" />
-      <div className="h-5 w-3/4 bg-white/10 rounded" />
-      <div className="h-3 w-1/2 bg-white/5 rounded" />
-      <div className="h-8 bg-white/5 rounded" />
-      <div className="h-8 bg-white/10 rounded mt-auto" />
-    </div>
-  );
-}
-
-export function ServiceGrid({ services, loading }: Props) {
-  if (loading) {
-    return (
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
-        {Array.from({ length: 8 }).map((_, i) => <SkeletonCard key={i} />)}
+    <div>
+      <div className="flex flex-col sm:flex-row gap-3 mb-5">
+        <input className="input flex-1" placeholder="Caută servicii, tags..." value={search} onChange={e => setSearch(e.target.value)} />
       </div>
-    );
-  }
-
-  if (!services.length) {
-    return (
-      <div className="flex flex-col items-center justify-center py-24 text-center">
-        <div className="w-16 h-16 rounded-2xl bg-brand-900/30 border border-brand-700/20 flex items-center justify-center mb-4">
-          <span className="text-3xl">🤖</span>
+      <div className="flex gap-2 flex-wrap mb-6">
+        {cats.map(c => (
+          <button key={c} onClick={() => setCat(c)} className={`text-xs px-3 py-1.5 rounded-full border font-medium transition-all ${
+            cat === c ? 'bg-brand-500 border-brand-500 text-white' : 'bg-dark-surface2 border-dark-border text-dark-muted hover:border-brand-500/40'
+          }`}>
+            {c === 'all' ? 'Toate' : CATEGORY_LABELS[c]}
+          </button>
+        ))}
+      </div>
+      {filtered.length === 0 ? (
+        <div className="flex flex-col items-center py-20 text-center">
+          <p className="text-3xl mb-3">🤖</p>
+          <p className="text-dark-muted">Niciun serviciu găsit.</p>
         </div>
-        <h3 className="text-white font-semibold">No services found</h3>
-        <p className="text-gray-500 text-sm mt-1 max-w-xs">
-          Be the first to list a service and earn EGLD from other agents.
-        </p>
-      </div>
-    );
-  }
-
-  return (
-    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
-      {services.map((service) => (
-        <ServiceCard key={service.id} service={service} />
-      ))}
+      ) : (
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-5">
+          {filtered.map(s => <ServiceCard key={s.id} service={s} />)}
+        </div>
+      )}
     </div>
   );
 }

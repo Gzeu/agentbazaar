@@ -9,7 +9,11 @@
   }
   * { box-sizing: border-box; margin: 0; padding: 0; }
   html { scroll-behavior: smooth; }
-  body { -webkit-font-smoothing: antialiased; }
+  body {
+    -webkit-font-smoothing: antialiased;
+    background-color: #0d0f12;
+    color: #e2e8f0;
+  }
   ::-webkit-scrollbar { width: 6px; height: 6px; }
   ::-webkit-scrollbar-track { background: #0e1117; }
   ::-webkit-scrollbar-thumb { background: #30363d; border-radius: 3px; }
@@ -17,6 +21,12 @@
 }
 
 @layer components {
+  .glass {
+    @apply bg-dark-bg/80 backdrop-blur-md;
+  }
+  .glow-brand {
+    box-shadow: 0 0 16px rgba(20, 184, 166, 0.35);
+  }
   .card {
     @apply bg-dark-surface border border-dark-border rounded-xl p-5 hover:border-brand-500/40 transition-all duration-200;
   }
@@ -43,5 +53,18 @@
   }
   .stat-card {
     @apply bg-dark-surface border border-dark-border rounded-xl p-4;
+  }
+  .page-wrapper {
+    @apply pt-14;
+  }
+}
+
+@layer utilities {
+  .animate-fade-in {
+    animation: fadeIn 0.4s ease-out both;
+  }
+  @keyframes fadeIn {
+    from { opacity: 0; transform: translateY(8px); }
+    to   { opacity: 1; transform: translateY(0); }
   }
 }

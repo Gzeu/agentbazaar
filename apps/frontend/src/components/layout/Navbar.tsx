@@ -1,16 +1,19 @@
+'use client';
+
 import Link from 'next/link';
-import { useRouter } from 'next/router';
-import { Bot, Zap, LayoutDashboard, PlusCircle, Activity } from 'lucide-react';
+import { usePathname } from 'next/navigation';
+import { Bot, Zap, LayoutDashboard, PlusCircle, Activity, ShoppingBag } from 'lucide-react';
 import clsx from 'clsx';
 
 const navItems = [
-  { href: '/', label: 'Marketplace', icon: LayoutDashboard },
+  { href: '/',           label: 'Marketplace', icon: ShoppingBag },
+  { href: '/dashboard',  label: 'Dashboard',   icon: LayoutDashboard },
+  { href: '/tasks',      label: 'Tasks',       icon: Activity },
   { href: '/services/register', label: 'List Service', icon: PlusCircle },
-  { href: '/tasks', label: 'My Tasks', icon: Activity },
 ];
 
 export function Navbar() {
-  const router = useRouter();
+  const pathname = usePathname();
 
   return (
     <nav className="fixed top-0 left-0 right-0 z-50 glass border-b border-white/5">
@@ -27,14 +30,14 @@ export function Navbar() {
         </Link>
 
         {/* Nav links */}
-        <div className="flex items-center gap-1">
+        <div className="hidden sm:flex items-center gap-1">
           {navItems.map(({ href, label, icon: Icon }) => (
             <Link
               key={href}
               href={href}
               className={clsx(
                 'flex items-center gap-1.5 px-3 py-1.5 rounded-md text-sm transition-colors',
-                router.pathname === href
+                pathname === href
                   ? 'bg-brand-900/50 text-brand-300 border border-brand-700/30'
                   : 'text-gray-400 hover:text-white hover:bg-white/5',
               )}
@@ -45,16 +48,34 @@ export function Navbar() {
           ))}
         </div>
 
-        {/* Network badge + Connect */}
+        {/* Right side */}
         <div className="flex items-center gap-3">
-          <div className="flex items-center gap-1.5 text-xs text-green-400">
-            <Zap size={12} className="animate-pulse" />
-            <span className="font-mono">Supernova</span>
+          <div className="hidden sm:flex items-center gap-1.5 text-xs text-emerald-400">
+            <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
+            <span className="font-mono">Devnet Live</span>
           </div>
-          <button className="px-3 py-1.5 rounded-lg bg-brand-600 hover:bg-brand-500 text-white text-sm font-medium transition-colors">
+          <button className="px-3 py-1.5 rounded-lg bg-brand-600 hover:bg-brand-500 text-white text-sm font-medium transition-colors flex items-center gap-1.5">
+            <Zap size={13} />
             Connect Wallet
           </button>
         </div>
+      </div>
+
+      {/* Mobile nav */}
+      <div className="sm:hidden flex border-t border-white/5 overflow-x-auto">
+        {navItems.map(({ href, label, icon: Icon }) => (
+          <Link
+            key={href}
+            href={href}
+            className={clsx(
+              'flex-1 flex flex-col items-center gap-1 py-2 text-[10px] transition-colors min-w-[60px]',
+              pathname === href ? 'text-brand-400' : 'text-gray-500'
+            )}
+          >
+            <Icon size={16} />
+            {label}
+          </Link>
+        ))}
       </div>
     </nav>
   );
