@@ -2,12 +2,21 @@
 name = "escrow"
 version = "0.1.0"
 edition = "2021"
+authors = ["George (Gzeu)"]
 
 [lib]
+name = "escrow"
 path = "src/lib.rs"
 
-[dependencies.multiversx-sc]
-version = "0.54"
+[dependencies]
+multiversx-sc = "0.54"
 
-[dev-dependencies.multiversx-sc-scenario]
-version = "0.54"
+[dev-dependencies]
+multiversx-sc-scenario = "0.54"
+
+[profile.release]
+codegen-units = 1
+opt-level = "z"
+lto = true
+debug = false
+panic = "abort"

@@ -1,46 +1,43 @@
 #![no_std]
 
-use multiversx_sc::imports::*;
+multiversx_sc::imports!();
+multiversx_sc::derive_imports!();
 
-/// AgentBazaar Registry Contract
-/// Stores service listings, provider metadata, stake, categories.
-/// Deployed on MultiversX Supernova Devnet.
+/// Pricing model for a service.
+#[derive(TopEncode, TopDecode, NestedEncode, NestedDecode, TypeAbi, Clone, PartialEq)]
+pub enum PricingModel {
+    Fixed,
+    Usage,
+    Subscription,
+    Quote,
+}
+
+/// On-chain service record stored in the Registry.
+#[derive(TopEncode, TopDecode, NestedEncode, NestedDecode, TypeAbi, Clone)]
+pub struct ServiceRecord<M: ManagedTypeApi> {
+    pub name: ManagedBuffer<M>,
+    pub category: ManagedBuffer<M>,
+    pub endpoint: ManagedBuffer<M>,
+    pub pricing_model: PricingModel,
+    pub price: BigUint<M>,
+    pub metadata_uri: ManagedBuffer<M>,
+    pub provider: ManagedAddress<M>,
+    pub stake: BigUint<M>,
+    pub active: bool,
+    pub created_at: u64,
+    pub updated_at: u64,
+}
+
 #[multiversx_sc::contract]
-pub trait RegistryContract {
-    // ── Storage ──────────────────────────────────────────────────────────────
-
-    #[storage_mapper("services")]
-    fn services(&self) -> MapMapper<ManagedBuffer, ServiceDescriptor<Self::Api>>;
-
-    #[storage_mapper("provider_stake")]
-    fn provider_stake(&self) -> MapMapper<ManagedAddress, BigUint>;
-
-    #[storage_mapper("service_count")]
-    fn service_count(&self) -> SingleValueMapper<u64>;
-
-    #[storage_mapper("owner")]
-    fn owner(&self) -> SingleValueMapper<ManagedAddress>;
-
-    #[storage_mapper("min_stake")]
-    fn min_stake(&self) -> SingleValueMapper<BigUint>;
-
-    #[storage_mapper("marketplace_fee_bps")]
-    fn marketplace_fee_bps(&self) -> SingleValueMapper<u32>;
-
-    // ── Init ─────────────────────────────────────────────────────────────────
-
+pub trait Registry {
     #[init]
-    fn init(&self, min_stake: BigUint, fee_bps: u32) {
-        self.owner().set(&self.blockchain().get_caller());
-        self.min_stake().set(min_stake);
-        self.marketplace_fee_bps().set(fee_bps);
-        self.service_count().set(0u64);
+    fn init(&self, min_stake: BigUint) {
+        self.min_stake().set(&min_stake);
     }
 
-    // ── Register Service ─────────────────────────────────────────────────────
+    // ─── Write endpoints ────────────────────────────────────────────────────
 
-    /// Provider calls this (payable) to register a service.
-    /// Payment = stake. Must be >= min_stake.
+    /// Register a new service. Caller must send at least `min_stake` EGLD.
     #[payable("EGLD")]
     #[endpoint(registerService)]
     fn register_service(
@@ -48,141 +45,153 @@ pub trait RegistryContract {
         service_id: ManagedBuffer,
         name: ManagedBuffer,
         category: ManagedBuffer,
-        endpoint_url: ManagedBuffer,
-        pricing_model: ManagedBuffer,
-        price_per_unit: BigUint,
-        max_latency_ms: u64,
-        uptime_guarantee_bps: u32,
-        ucp_compatible: bool,
-        mcp_compatible: bool,
-        metadata_hash: ManagedBuffer, // IPFS/Arweave hash of full descriptor
+        endpoint: ManagedBuffer,
+        pricing_model: PricingModel,
+        price: BigUint,
+        metadata_uri: ManagedBuffer,
     ) {
-        let stake = self.call_value().egld();
-        let min = self.min_stake().get();
-        require!(*stake >= min, "Stake below minimum");
-        require!(!service_id.is_empty(), "Service ID required");
-        require!(!self.services().contains_key(&service_id), "Service ID already exists");
+        let stake = self.call_value().egld_value().clone_value();
+        require!(stake >= self.min_stake().get(), "Insufficient stake");
+        require!(!service_id.is_empty(), "Empty service ID");
+        require!(!self.services().contains_key(&service_id), "Service ID already registered");
 
-        let provider = self.blockchain().get_caller();
+        let caller = self.blockchain().get_caller();
         let now = self.blockchain().get_block_timestamp();
 
-        let descriptor = ServiceDescriptor {
-            service_id: service_id.clone(),
-            name,
-            category,
-            provider: provider.clone(),
-            endpoint_url,
+        let record = ServiceRecord {
+            name: name.clone(),
+            category: category.clone(),
+            endpoint,
             pricing_model,
-            price_per_unit,
-            max_latency_ms,
-            uptime_guarantee_bps,
-            ucp_compatible,
-            mcp_compatible,
-            metadata_hash,
-            registered_at: now,
+            price,
+            metadata_uri,
+            provider: caller.clone(),
+            stake,
             active: true,
-            total_tasks: 0u64,
+            created_at: now,
+            updated_at: now,
         };
 
-        self.services().insert(service_id.clone(), descriptor);
+        self.services().insert(service_id.clone(), record);
+        self.provider_services(&caller).insert(service_id.clone());
+        self.category_services(&category).insert(service_id.clone());
 
-        // Add to provider stake
-        let current_stake = self.provider_stake().get(&provider).unwrap_or_default();
-        self.provider_stake().insert(provider.clone(), current_stake + &*stake);
-
-        let count = self.service_count().get();
-        self.service_count().set(count + 1);
-
-        self.service_registered_event(&service_id, &provider, &*stake, now);
+        self.service_registered_event(&service_id, &caller, &name);
     }
 
-    // ── Deactivate Service ───────────────────────────────────────────────────
+    /// Update price and active status of an existing service.
+    #[endpoint(updateService)]
+    fn update_service(
+        &self,
+        service_id: ManagedBuffer,
+        new_price: BigUint,
+        active: bool,
+    ) {
+        require!(self.services().contains_key(&service_id), "Service not found");
+        let mut record = self.services().get(&service_id).unwrap();
+        require!(record.provider == self.blockchain().get_caller(), "Not the provider");
 
-    #[endpoint(deactivateService)]
-    fn deactivate_service(&self, service_id: ManagedBuffer) {
-        let caller = self.blockchain().get_caller();
-        let mut descriptor = self.services().get(&service_id)
-            .unwrap_or_else(|| sc_panic!("Service not found"));
-        require!(descriptor.provider == caller || self.owner().get() == caller, "Not authorized");
-        descriptor.active = false;
-        self.services().insert(service_id.clone(), descriptor);
-        self.service_deactivated_event(&service_id);
+        record.price = new_price;
+        record.active = active;
+        record.updated_at = self.blockchain().get_block_timestamp();
+        self.services().insert(service_id.clone(), record);
+
+        self.service_updated_event(&service_id);
     }
 
-    // ── Increment Task Counter (called by Escrow) ────────────────────────────
+    /// Deregister a service and return the stake to the provider.
+    #[endpoint(deregisterService)]
+    fn deregister_service(&self, service_id: ManagedBuffer) {
+        require!(self.services().contains_key(&service_id), "Service not found");
+        let record = self.services().get(&service_id).unwrap();
+        require!(record.provider == self.blockchain().get_caller(), "Not the provider");
 
-    #[endpoint(incrementTaskCount)]
-    fn increment_task_count(&self, service_id: ManagedBuffer) {
-        if let Some(mut d) = self.services().get(&service_id) {
-            d.total_tasks += 1;
-            self.services().insert(service_id, d);
+        self.services().remove(&service_id);
+        self.provider_services(&record.provider).swap_remove(&service_id);
+        self.category_services(&record.category).swap_remove(&service_id);
+
+        if record.stake > BigUint::zero() {
+            self.tx()
+                .to(&record.provider)
+                .egld(&record.stake)
+                .transfer();
+        }
+
+        self.service_deregistered_event(&service_id);
+    }
+
+    // ─── View endpoints ─────────────────────────────────────────────────────
+
+    #[view(getService)]
+    fn get_service(&self, service_id: ManagedBuffer) -> OptionalValue<ServiceRecord<Self::Api>> {
+        match self.services().get(&service_id) {
+            Some(record) => OptionalValue::Some(record),
+            None => OptionalValue::None,
         }
     }
 
-    // ── Slash provider stake (called by Reputation contract) ─────────────────
-
-    #[endpoint(slashProvider)]
-    fn slash_provider(&self, provider: ManagedAddress, amount: BigUint) {
-        require!(self.owner().get() == self.blockchain().get_caller(), "Only owner");
-        let stake = self.provider_stake().get(&provider).unwrap_or_default();
-        require!(stake >= amount, "Insufficient stake to slash");
-        self.provider_stake().insert(provider.clone(), stake - &amount);
-        // Send slashed amount to owner (treasury)
-        let owner = self.owner().get();
-        self.tx().to(&owner).egld(&amount).transfer();
-        self.provider_slashed_event(&provider, &amount);
+    #[view(getServicesByProvider)]
+    fn get_services_by_provider(
+        &self,
+        provider: ManagedAddress,
+    ) -> MultiValueEncoded<ManagedBuffer> {
+        let mut result = MultiValueEncoded::new();
+        for id in self.provider_services(&provider).iter() {
+            result.push(id);
+        }
+        result
     }
 
-    // ── Views ────────────────────────────────────────────────────────────────
-
-    #[view(getService)]
-    fn get_service(&self, service_id: ManagedBuffer) -> OptionalValue<ServiceDescriptor<Self::Api>> {
-        OptionalValue::from(self.services().get(&service_id))
+    #[view(getServicesByCategory)]
+    fn get_services_by_category(
+        &self,
+        category: ManagedBuffer,
+    ) -> MultiValueEncoded<ManagedBuffer> {
+        let mut result = MultiValueEncoded::new();
+        for id in self.category_services(&category).iter() {
+            result.push(id);
+        }
+        result
     }
 
-    #[view(getProviderStake)]
-    fn get_provider_stake(&self, provider: ManagedAddress) -> BigUint {
-        self.provider_stake().get(&provider).unwrap_or_default()
+    #[view(getMinStake)]
+    fn get_min_stake(&self) -> BigUint {
+        self.min_stake().get()
     }
 
-    #[view(getServiceCount)]
-    fn get_service_count(&self) -> u64 {
-        self.service_count().get()
-    }
+    // ─── Storage ─────────────────────────────────────────────────────────────
 
-    // ── Events ───────────────────────────────────────────────────────────────
+    #[storage_mapper("services")]
+    fn services(&self) -> MapMapper<ManagedBuffer, ServiceRecord<Self::Api>>;
 
-    #[event("serviceRegistered")]
+    #[storage_mapper("provider_services")]
+    fn provider_services(
+        &self,
+        provider: &ManagedAddress,
+    ) -> UnorderedSetMapper<ManagedBuffer>;
+
+    #[storage_mapper("category_services")]
+    fn category_services(
+        &self,
+        category: &ManagedBuffer,
+    ) -> UnorderedSetMapper<ManagedBuffer>;
+
+    #[storage_mapper("min_stake")]
+    fn min_stake(&self) -> SingleValueMapper<BigUint>;
+
+    // ─── Events ──────────────────────────────────────────────────────────────
+
+    #[event("ServiceRegistered")]
     fn service_registered_event(
-        &self, #[indexed] service_id: &ManagedBuffer,
+        &self,
+        #[indexed] service_id: &ManagedBuffer,
         #[indexed] provider: &ManagedAddress,
-        stake: &BigUint, timestamp: u64,
+        name: &ManagedBuffer,
     );
 
-    #[event("serviceDeactivated")]
-    fn service_deactivated_event(&self, #[indexed] service_id: &ManagedBuffer);
+    #[event("ServiceUpdated")]
+    fn service_updated_event(&self, #[indexed] service_id: &ManagedBuffer);
 
-    #[event("providerSlashed")]
-    fn provider_slashed_event(&self, #[indexed] provider: &ManagedAddress, amount: &BigUint);
-}
-
-// ── Types ─────────────────────────────────────────────────────────────────
-
-#[derive(TopEncode, TopDecode, NestedEncode, NestedDecode, TypeAbi, Clone)]
-pub struct ServiceDescriptor<M: ManagedTypeApi> {
-    pub service_id: ManagedBuffer<M>,
-    pub name: ManagedBuffer<M>,
-    pub category: ManagedBuffer<M>,
-    pub provider: ManagedAddress<M>,
-    pub endpoint_url: ManagedBuffer<M>,
-    pub pricing_model: ManagedBuffer<M>,
-    pub price_per_unit: BigUint<M>,
-    pub max_latency_ms: u64,
-    pub uptime_guarantee_bps: u32,
-    pub ucp_compatible: bool,
-    pub mcp_compatible: bool,
-    pub metadata_hash: ManagedBuffer<M>,
-    pub registered_at: u64,
-    pub active: bool,
-    pub total_tasks: u64,
+    #[event("ServiceDeregistered")]
+    fn service_deregistered_event(&self, #[indexed] service_id: &ManagedBuffer);
 }

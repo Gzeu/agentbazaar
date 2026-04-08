@@ -1,0 +1,82 @@
+{
+  "name": "reputation",
+  "endpoints": [
+    {"name": "init", "onlyOwner": true, "inputs": [], "outputs": []},
+    {
+      "name": "submitCompletionProof",
+      "mutability": "mutable",
+      "inputs": [
+        {"name": "task_id", "type": "bytes"},
+        {"name": "proof_hash", "type": "bytes"},
+        {"name": "latency_ms", "type": "u64"}
+      ],
+      "outputs": []
+    },
+    {
+      "name": "slashProvider",
+      "onlyOwner": true,
+      "mutability": "mutable",
+      "inputs": [
+        {"name": "provider", "type": "Address"},
+        {"name": "task_id", "type": "bytes"},
+        {"name": "reason", "type": "bytes"}
+      ],
+      "outputs": []
+    },
+    {
+      "name": "recordFailedTask",
+      "onlyOwner": true,
+      "mutability": "mutable",
+      "inputs": [
+        {"name": "provider", "type": "Address"},
+        {"name": "task_id", "type": "bytes"}
+      ],
+      "outputs": []
+    },
+    {
+      "name": "getReputation",
+      "mutability": "readonly",
+      "inputs": [{"name": "provider", "type": "Address"}],
+      "outputs": [{"type": "optional<ReputationRecord>", "multi_result": true}]
+    },
+    {
+      "name": "getScore",
+      "mutability": "readonly",
+      "inputs": [{"name": "provider", "type": "Address"}],
+      "outputs": [{"type": "u64"}]
+    }
+  ],
+  "types": {
+    "ReputationRecord": {
+      "type": "struct",
+      "fields": [
+        {"name": "address", "type": "Address"},
+        {"name": "score", "type": "u64"},
+        {"name": "completed_tasks", "type": "u64"},
+        {"name": "failed_tasks", "type": "u64"},
+        {"name": "disputed_tasks", "type": "u64"},
+        {"name": "slash_count", "type": "u64"},
+        {"name": "total_latency_ms", "type": "u64"},
+        {"name": "updated_at", "type": "u64"}
+      ]
+    }
+  },
+  "events": [
+    {
+      "identifier": "ReputationUpdated",
+      "inputs": [
+        {"name": "provider", "type": "Address", "indexed": true},
+        {"name": "task_id", "type": "bytes", "indexed": true},
+        {"name": "proof_hash", "type": "bytes"}
+      ]
+    },
+    {
+      "identifier": "ProviderSlashed",
+      "inputs": [
+        {"name": "provider", "type": "Address", "indexed": true},
+        {"name": "task_id", "type": "bytes", "indexed": true},
+        {"name": "reason", "type": "bytes"}
+      ]
+    }
+  ]
+}
