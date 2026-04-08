@@ -3,198 +3,210 @@
 multiversx_sc::imports!();
 multiversx_sc::derive_imports!();
 
-pub mod events;
-pub mod storage;
-pub mod views;
-
-/// Minimum stake amounts per category (in EGLD denomination: 1e18)
-/// Categories: 0=data-fetching, 1=compute-offload, 2=wallet-actions,
-///             3=compliance, 4=enrichment, 5=orchestration, 6=notifications
-const MIN_STAKE_EGLD: u64 = 5_000_000_000_000_000_000; // 5 EGLD
-
-#[derive(TopEncode, TopDecode, NestedEncode, NestedDecode, TypeAbi, Clone)]
-pub struct ServiceEntry<M: ManagedTypeApi> {
-    pub service_id: ManagedBuffer<M>,
+/// ─── Service Descriptor ───────────────────────────────────────────────────────
+#[derive(TypeAbi, TopEncode, TopDecode, NestedEncode, NestedDecode, ManagedVecItem, Clone)]
+pub struct ServiceDescriptor<M: ManagedTypeApi> {
+    pub id: ManagedBuffer<M>,
+    pub name: ManagedBuffer<M>,
+    pub category: ManagedBuffer<M>,       // e.g. "data-fetching"
+    pub version: ManagedBuffer<M>,
+    pub endpoint_hash: ManagedBuffer<M>,  // keccak256(endpoint_url) — URL stored off-chain
+    pub metadata_hash: ManagedBuffer<M>,  // IPFS/Arweave CID hash
+    pub pricing_model: ManagedBuffer<M>,  // "per-request" | "per-token" | "per-workflow" ...
+    pub price_per_unit: BigUint<M>,       // in EGLD denomination (10^18)
+    pub max_latency_ms: u64,
+    pub uptime_guarantee: u64,            // basis points (9900 = 99.00%)
+    pub ucp_compatible: bool,
+    pub mcp_compatible: bool,
     pub provider: ManagedAddress<M>,
-    pub descriptor_hash: ManagedBuffer<M>, // IPFS/Arweave CID
-    pub category: u8,
-    pub price_per_request: BigUint<M>,     // in smallest EGLD denomination
     pub stake: BigUint<M>,
-    pub reputation_score: u64,             // 0-10000 (basis points)
     pub active: bool,
-    pub registered_at: u64,
+    pub registered_at: u64,               // block timestamp
     pub total_tasks: u64,
 }
 
+/// ─── Registry Contract ───────────────────────────────────────────────────────
 #[multiversx_sc::contract]
-pub trait RegistryContract:
-    storage::StorageModule
-    + views::ViewsModule
-    + events::EventsModule
-{
+pub trait AgentRegistry {
     #[init]
-    fn init(&self, min_stake: BigUint) {
+    fn init(&self, min_stake: BigUint, protocol_fee_bps: u64) {
         self.min_stake().set(&min_stake);
-        self.service_count().set(0u64);
+        self.protocol_fee_bps().set(protocol_fee_bps);
+        self.owner().set(self.blockchain().get_caller());
     }
 
-    #[upgrade]
-    fn upgrade(&self) {}
-
-    // -------------------------------------------------------------------------
-    // WRITE ENDPOINTS
-    // -------------------------------------------------------------------------
-
-    /// Register a new service. Requires EGLD stake >= min_stake.
+    // ── Register ─────────────────────────────────────────────────────────────
     #[payable("EGLD")]
     #[endpoint(registerService)]
     fn register_service(
         &self,
         service_id: ManagedBuffer,
-        descriptor_hash: ManagedBuffer, // IPFS CID of the ServiceDescriptor JSON
-        category: u8,
-        price_per_request: BigUint,
+        name: ManagedBuffer,
+        category: ManagedBuffer,
+        version: ManagedBuffer,
+        endpoint_hash: ManagedBuffer,
+        metadata_hash: ManagedBuffer,
+        pricing_model: ManagedBuffer,
+        price_per_unit: BigUint,
+        max_latency_ms: u64,
+        uptime_guarantee: u64,
+        ucp_compatible: bool,
+        mcp_compatible: bool,
     ) {
-        let caller = self.blockchain().get_caller();
         let stake = self.call_value().egld_value().clone_value();
+        require!(stake >= self.min_stake().get(), "Stake below minimum");
+        require!(!self.services().contains_key(&service_id), "Service ID already registered");
+        require!(uptime_guarantee <= 10_000, "Uptime guarantee max 10000 bps");
 
-        require!(
-            stake >= self.min_stake().get(),
-            "Stake below minimum required"
-        );
-        require!(
-            !self.service_by_id(&service_id).is_empty(),
-            "Service ID already registered"
-        );
-        require!(category <= 6, "Invalid category");
-        require!(
-            descriptor_hash.len() > 0,
-            "Descriptor hash cannot be empty"
-        );
-
+        let caller = self.blockchain().get_caller();
         let now = self.blockchain().get_block_timestamp();
 
-        let entry = ServiceEntry {
-            service_id: service_id.clone(),
+        let descriptor = ServiceDescriptor {
+            id: service_id.clone(),
+            name,
+            category: category.clone(),
+            version,
+            endpoint_hash,
+            metadata_hash,
+            pricing_model,
+            price_per_unit,
+            max_latency_ms,
+            uptime_guarantee,
+            ucp_compatible,
+            mcp_compatible,
             provider: caller.clone(),
-            descriptor_hash: descriptor_hash.clone(),
-            category,
-            price_per_request: price_per_request.clone(),
             stake: stake.clone(),
-            reputation_score: 5000u64, // Start at 50%
             active: true,
             registered_at: now,
-            total_tasks: 0u64,
+            total_tasks: 0,
         };
 
-        self.service_by_id(&service_id).set(&entry);
-        self.services_by_provider(&caller)
-            .insert(service_id.clone());
-        self.services_by_category(category)
-            .insert(service_id.clone());
+        self.services().insert(service_id.clone(), descriptor);
+        self.provider_services(&caller).insert(service_id.clone());
+        self.category_services(&category).insert(service_id.clone());
+        self.total_staked().update(|v| *v += &stake);
 
-        let count = self.service_count().get() + 1;
-        self.service_count().set(count);
-
-        self.service_registered_event(
-            &caller,
-            &service_id,
-            &descriptor_hash,
-            category,
-            &price_per_request,
-            &stake,
-        );
+        self.service_registered_event(&service_id, &caller, &stake, now);
     }
 
-    /// Update service descriptor and/or pricing
+    // ── Update ───────────────────────────────────────────────────────────────
     #[endpoint(updateService)]
     fn update_service(
         &self,
         service_id: ManagedBuffer,
-        descriptor_hash: ManagedBuffer,
-        price_per_request: BigUint,
+        new_price: BigUint,
+        new_max_latency_ms: u64,
+        new_metadata_hash: ManagedBuffer,
     ) {
         let caller = self.blockchain().get_caller();
-        require!(
-            !self.service_by_id(&service_id).is_empty(),
-            "Service not found"
-        );
-
-        let mut entry = self.service_by_id(&service_id).get();
-        require!(entry.provider == caller, "Only provider can update");
-        require!(entry.active, "Service is deactivated");
-
-        entry.descriptor_hash = descriptor_hash;
-        entry.price_per_request = price_per_request;
-        self.service_by_id(&service_id).set(&entry);
-
-        self.service_updated_event(&caller, &service_id);
+        let mut svc = self.services().get(&service_id).unwrap_or_else(|| sc_panic!("Not found"));
+        require!(svc.provider == caller, "Not the provider");
+        svc.price_per_unit = new_price;
+        svc.max_latency_ms = new_max_latency_ms;
+        svc.metadata_hash = new_metadata_hash;
+        self.services().insert(service_id.clone(), svc);
+        self.service_updated_event(&service_id);
     }
 
-    /// Deregister service and return stake
-    #[endpoint(deregisterService)]
-    fn deregister_service(&self, service_id: ManagedBuffer) {
+    // ── Deactivate ───────────────────────────────────────────────────────────
+    #[endpoint(deactivateService)]
+    fn deactivate_service(&self, service_id: ManagedBuffer) {
         let caller = self.blockchain().get_caller();
-        require!(
-            !self.service_by_id(&service_id).is_empty(),
-            "Service not found"
-        );
+        let mut svc = self.services().get(&service_id).unwrap_or_else(|| sc_panic!("Not found"));
+        require!(svc.provider == caller || caller == self.owner().get(), "Unauthorized");
+        svc.active = false;
+        self.services().insert(service_id.clone(), svc);
+        self.service_deactivated_event(&service_id);
+    }
 
-        let entry = self.service_by_id(&service_id).get();
-        require!(entry.provider == caller, "Only provider can deregister");
-
-        let stake = entry.stake.clone();
-
-        self.services_by_provider(&caller)
-            .remove(&service_id);
-        self.services_by_category(entry.category)
-            .remove(&service_id);
-        self.service_by_id(&service_id).clear();
-
-        let count = self.service_count().get().saturating_sub(1);
-        self.service_count().set(count);
-
-        // Return stake
+    // ── Withdraw stake ───────────────────────────────────────────────────────
+    #[endpoint(withdrawStake)]
+    fn withdraw_stake(&self, service_id: ManagedBuffer) {
+        let caller = self.blockchain().get_caller();
+        let svc = self.services().get(&service_id).unwrap_or_else(|| sc_panic!("Not found"));
+        require!(svc.provider == caller, "Not the provider");
+        require!(!svc.active, "Deactivate first");
+        let stake = svc.stake.clone();
+        self.total_staked().update(|v| *v -= &stake);
         self.send().direct_egld(&caller, &stake);
-
-        self.service_deregistered_event(&caller, &service_id);
+        self.services().remove(&service_id);
+        self.stake_withdrawn_event(&service_id, &stake);
     }
 
-    /// Called by Reputation contract to update score
-    #[endpoint(updateReputationScore)]
-    fn update_reputation_score(
-        &self,
-        service_id: ManagedBuffer,
-        new_score: u64,
-        delta_tasks: u64,
-    ) {
-        // Only the reputation contract can call this
-        let reputation_addr = self.reputation_contract_address().get();
-        require!(
-            self.blockchain().get_caller() == reputation_addr,
-            "Unauthorized: only reputation contract"
-        );
-        require!(new_score <= 10000, "Score must be in basis points 0-10000");
-
-        if !self.service_by_id(&service_id).is_empty() {
-            let mut entry = self.service_by_id(&service_id).get();
-            entry.reputation_score = new_score;
-            entry.total_tasks += delta_tasks;
-            self.service_by_id(&service_id).set(&entry);
+    // ── Increment task count (callable by Escrow contract) ───────────────────
+    #[endpoint(incrementTaskCount)]
+    fn increment_task_count(&self, service_id: ManagedBuffer) {
+        require!(self.escrow_contract().get() == self.blockchain().get_caller(), "Only escrow");
+        if let Some(mut svc) = self.services().get(&service_id) {
+            svc.total_tasks += 1;
+            self.services().insert(service_id, svc);
         }
     }
 
-    /// Owner: set the address of the Reputation contract
-    #[only_owner]
-    #[endpoint(setReputationContract)]
-    fn set_reputation_contract(&self, address: ManagedAddress) {
-        self.reputation_contract_address().set(&address);
+    // ── Views ─────────────────────────────────────────────────────────────────
+    #[view(getService)]
+    fn get_service(&self, service_id: ManagedBuffer) -> OptionalValue<ServiceDescriptor<Self::Api>> {
+        OptionalValue::from(self.services().get(&service_id))
     }
 
-    /// Owner: set minimum stake
+    #[view(getServicesByCategory)]
+    fn get_services_by_category(&self, category: ManagedBuffer) -> MultiValueEncoded<ManagedBuffer> {
+        let mut out = MultiValueEncoded::new();
+        for id in self.category_services(&category).iter() { out.push(id); }
+        out
+    }
+
+    #[view(getProviderServices)]
+    fn get_provider_services(&self, provider: ManagedAddress) -> MultiValueEncoded<ManagedBuffer> {
+        let mut out = MultiValueEncoded::new();
+        for id in self.provider_services(&provider).iter() { out.push(id); }
+        out
+    }
+
+    // ── Admin ─────────────────────────────────────────────────────────────────
+    #[only_owner]
+    #[endpoint(setEscrowContract)]
+    fn set_escrow_contract(&self, addr: ManagedAddress) { self.escrow_contract().set(addr); }
+
     #[only_owner]
     #[endpoint(setMinStake)]
-    fn set_min_stake(&self, new_min: BigUint) {
-        self.min_stake().set(&new_min);
-    }
+    fn set_min_stake(&self, amount: BigUint) { self.min_stake().set(&amount); }
+
+    // ── Storage ───────────────────────────────────────────────────────────────
+    #[storage_mapper("services")]
+    fn services(&self) -> MapMapper<ManagedBuffer, ServiceDescriptor<Self::Api>>;
+
+    #[storage_mapper("providerServices")]
+    fn provider_services(&self, provider: &ManagedAddress) -> UnorderedSetMapper<ManagedBuffer>;
+
+    #[storage_mapper("categoryServices")]
+    fn category_services(&self, category: &ManagedBuffer) -> UnorderedSetMapper<ManagedBuffer>;
+
+    #[storage_mapper("minStake")]
+    fn min_stake(&self) -> SingleValueMapper<BigUint>;
+
+    #[storage_mapper("protocolFeeBps")]
+    fn protocol_fee_bps(&self) -> SingleValueMapper<u64>;
+
+    #[storage_mapper("totalStaked")]
+    fn total_staked(&self) -> SingleValueMapper<BigUint>;
+
+    #[storage_mapper("escrowContract")]
+    fn escrow_contract(&self) -> SingleValueMapper<ManagedAddress>;
+
+    #[storage_mapper("owner")]
+    fn owner(&self) -> SingleValueMapper<ManagedAddress>;
+
+    // ── Events ────────────────────────────────────────────────────────────────
+    #[event("serviceRegistered")]
+    fn service_registered_event(&self, #[indexed] id: &ManagedBuffer, #[indexed] provider: &ManagedAddress, stake: &BigUint, timestamp: u64);
+
+    #[event("serviceUpdated")]
+    fn service_updated_event(&self, #[indexed] id: &ManagedBuffer);
+
+    #[event("serviceDeactivated")]
+    fn service_deactivated_event(&self, #[indexed] id: &ManagedBuffer);
+
+    #[event("stakeWithdrawn")]
+    fn stake_withdrawn_event(&self, #[indexed] id: &ManagedBuffer, amount: &BigUint);
 }
