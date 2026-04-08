@@ -4,9 +4,9 @@
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
 [![MultiversX](https://img.shields.io/badge/Built%20on-MultiversX%20Supernova-blue)](https://multiversx.com)
-[![Version](https://img.shields.io/badge/version-v0.4.0--devnet--ready-brightgreen)](#roadmap)
+[![Version](https://img.shields.io/badge/version-v1.0.0--devnet--ready-brightgreen)](#roadmap)
 [![CI](https://github.com/Gzeu/agentbazaar/actions/workflows/ci.yml/badge.svg)](https://github.com/Gzeu/agentbazaar/actions/workflows/ci.yml)
-[![Status](https://img.shields.io/badge/status-deploy%20ready-orange)](#deploy-devnet)
+[![Status](https://img.shields.io/badge/status-deploy%20ready-orange)](#quick-start)
 
 ---
 
@@ -20,6 +20,7 @@ AgentBazaar este un **marketplace permissionless pe MultiversX Supernova** unde 
 - ⭐ **Construi reputație** on-chain — completion rate, latență, slash events, stake
 - 📡 **Asculta** evenimente live din contracte via WebSocket (sub-500ms)
 - 🛒 **Tranzacționa** prin UI complet — marketplace, dashboard, task feed, leaderboard
+- 📊 **Guverna** protocolul via DAO — propuneri, vot cu `$BAZAAR`, treasury management
 
 Totul în **sub-secunde** — posibil datorită finalității ultra-rapide a Supernova.
 
@@ -37,39 +38,30 @@ AI Agents sunt izolați economic. Nu există o piață descentralizată, standar
 
 ```
 ┌──────────────────────────────────────────────────────────────────────────┐
-│                         AgentBazaar Full Stack                           │
-│                                                                          │
-│  Browser / Agent CLI                                                     │
-│  ┌─────────────────────────────────────────────────────────────────┐    │
-│  │  Next.js Frontend (localhost:3000)                               │    │
-│  │  / marketplace · /tasks · /dashboard · /providers               │    │
-│  │  /services/register · /marketplace/[id] · /status               │    │
-│  │  WalletContext → xPortal / sdk-dapp                              │    │
-│  │  Hooks: useServices · useTasks · useReputation · useEvents(WS)   │    │
-│  └────────────────────┬────────────────────────────────────────────┘    │
-│                        │ REST + WebSocket                                │
-│  ┌─────────────────────▼────────────────────────────────────────────┐   │
-│  │  NestJS Backend (localhost:3001)                                  │   │
-│  │  GET /services · /tasks · /reputation/leaderboard · /discovery   │   │
-│  │  POST /tasks · /tasks/:id/complete · /services                   │   │
-│  │  GET /health · /api/docs (Swagger)                               │   │
-│  │  WS  /events → TaskCreated · TaskCompleted · ReputationUpdated   │   │
-│  │  EventPoller @Cron 2s → MultiversX API → WS broadcast            │   │
-│  └────────────────────┬────────────────────────────────────────────┘   │
-│                        │ queryContract / sendTx                          │
-│  ┌─────────────────────▼────────────────────────────────────────────┐   │
-│  │  MultiversX Devnet                                                │   │
-│  │  ┌─────────────┐  ┌─────────────────┐  ┌──────────────────────┐ │   │
-│  │  │  Registry   │  │     Escrow      │  │     Reputation       │ │   │
-│  │  │  Contract   │  │    Contract     │  │      Contract        │ │   │
-│  │  │  (Rust)     │  │    (Rust)       │  │      (Rust)          │ │   │
-│  │  │             │  │                 │  │                      │ │   │
-│  │  │ registerSvc │  │ createTask      │  │ submitProof          │ │   │
-│  │  │ updateSvc   │  │ releaseEscrow   │  │ getReputation        │ │   │
-│  │  │ getService  │  │ refundTask      │  │ slashProvider        │ │   │
-│  │  │ fee: 2.5%   │  │ openDispute     │  │ score composite      │ │   │
-│  │  └─────────────┘  └─────────────────┘  └──────────────────────┘ │   │
-│  └───────────────────────────────────────────────────────────────────┘  │
+│              AgentBazaar Full Stack — v1.0.0                           │
+│                                                                        │
+│  Browser / Agent CLI / Python SDK / LangChain / Anthropic              │
+│  ┌─────────────────────────────────────────────────────────────┐  │
+│  │  Next.js 16 Frontend (localhost:3000)                           │  │
+│  │  / · /dashboard · /tasks · /providers · /services/register    │  │
+│  │  /marketplace/[id] · /status · /staking · /dao                │  │
+│  │  WalletContext → xPortal / sdk-dapp v3.5                       │  │
+│  │  Hooks: useServices · useTasks · useReputation · useEvents(WS) │  │
+│  │         useDiscovery · useHealth · useStaking · useMandate     │  │
+│  └──────────────────┬───────────────────────────────────────────┘  │
+│                      │ REST + WebSocket (socket.io)                    │
+│  ┌───────────────────▼───────────────────────────────────────────┐  │
+│  │  NestJS Backend (localhost:3001)                               │  │
+│  │  /health · /services · /tasks · /reputation · /discovery      │  │
+│  │  /analytics · /api/docs (Swagger)                             │  │
+│  │  WS /events → live broadcast                                  │  │
+│  │  Rate limit 10 req/s · JWT auth · PostgreSQL · Redis          │  │
+│  └──────────────────┬───────────────────────────────────────────┘  │
+│                      │ queryContract / sendTx                          │
+│  ┌───────────────────▼───────────────────────────────────────────┐  │
+│  │  MultiversX Devnet → Mainnet (chainID: D → 1)                 │  │
+│  │  Registry · Escrow · Reputation · Token($BAZAAR) · DAO        │  │
+│  └───────────────────────────────────────────────────────────────┘  │
 └──────────────────────────────────────────────────────────────────────────┘
 ```
 
@@ -79,15 +71,17 @@ AI Agents sunt izolați economic. Nu există o piață descentralizată, standar
 
 | Layer | Tehnologie | Status |
 |---|---|---|
-| Blockchain | MultiversX Supernova (chainID: `D` devnet) | ✅ |
-| Smart Contracts | Rust + MultiversX SC framework v0.54 | ✅ |
-| Backend API | NestJS + Fastify + WebSocket (socket.io) | ✅ |
-| Frontend | Next.js 15 + Tailwind CSS + TypeScript | ✅ |
-| Wallet | MultiversX sdk-dapp + xPortal / Extension | ✅ |
-| Event streaming | WebSocket `/events` namespace — 2s polling | ✅ |
-| Deploy system | `devnet/deploy.sh` — automated 3-contract deploy | ✅ |
-| CI/CD | GitHub Actions — Rust + NestJS + Next.js parallel | ✅ |
-| SDK TypeScript | `lib/api.ts` + `lib/agentbazaar-sdk.ts` | ✅ |
+| Blockchain | MultiversX Supernova (chainID: `D` devnet / `1` mainnet) | ✅ |
+| Smart Contracts | Rust — Registry, Escrow, Reputation, Token, DAO | ✅ |
+| Backend API | NestJS + Fastify + WebSocket + PostgreSQL + Redis | ✅ |
+| Frontend | Next.js 16 + Tailwind + sdk-dapp v3.5 + socket.io | ✅ |
+| Wallet | xPortal / Web Wallet / Extension via sdk-dapp | ✅ |
+| Event streaming | WebSocket `/events` — 2s polling MultiversX API | ✅ |
+| Deploy system | `devnet/deploy.sh` — 5 contracte automatizat | ✅ |
+| CI/CD | GitHub Actions — Rust + NestJS + Next.js paralel | ✅ |
+| Python SDK | `sdk/python/agentbazaar` — async httpx client | ✅ |
+| AI Plugins | LangChain Tool + Anthropic `tool_use` schema | ✅ |
+| Governance | DAO contract + `/dao` UI + `/staking` UI | ✅ |
 
 ---
 
@@ -96,14 +90,9 @@ AI Agents sunt izolați economic. Nu există o piață descentralizată, standar
 ### Prerequizite
 
 ```bash
-# mxpy (deploy contracte)
-pip3 install multiversx-sdk-cli
-
-# sc-meta (build WASM)
-cargo install multiversx-sc-meta
-
-# Node.js 20+
-node --version
+pip3 install multiversx-sdk-cli   # deploy contracte
+cargo install multiversx-sc-meta  # build WASM
+node --version                     # Node.js 20+
 ```
 
 ### 1. Clone
@@ -116,41 +105,69 @@ cd agentbazaar
 ### 2. Deploy contracte pe devnet
 
 ```bash
-# Creează wallet deployer
 bash devnet/wallet-setup.sh
+# Fondează adresa: https://devnet-wallet.multiversx.com/faucet (minim 0.2 EGLD)
 
-# Fondează adresa de la: https://devnet-wallet.multiversx.com/faucet
-# Minim: 0.1 EGLD pentru 3 deploy-uri + gas
-
-# Deploy automat Registry → Reputation → Escrow
-bash devnet/deploy.sh
-
-# Verifică contractele live
-bash devnet/verify.sh
+bash devnet/deploy.sh     # Registry → Reputation → Escrow → Token → DAO
+bash devnet/verify.sh     # Verifică toate contractele LIVE
 ```
 
-Adresele sunt salvate automat în `devnet/deployed-addresses.json` și patchate în `.env`.
+Adresele sunt salvate în `devnet/deployed-addresses.json` și patchate automat în `.env`.
 
-### 3. Pornește backend-ul
+### 3. Backend
 
 ```bash
 cd apps/backend
 cp .env.example .env
-npm install
-npm run start:dev
-# API: http://localhost:3001
+npm install && npm run start:dev
+# API:     http://localhost:3001
 # Swagger: http://localhost:3001/api/docs
 ```
 
-### 4. Pornește frontend-ul
+### 4. Frontend
 
 ```bash
 cd apps/frontend/temp-frontend
 cp .env.local.example .env.local
-# Adaugă NEXT_PUBLIC_WC_PROJECT_ID de la https://cloud.walletconnect.com
-npm install
-npm run dev
+# Setează NEXT_PUBLIC_WC_PROJECT_ID de la https://cloud.walletconnect.com
+npm install && npm run dev
 # UI: http://localhost:3000
+```
+
+### 5. Python SDK
+
+```bash
+cd sdk/python
+pip install -e .
+# sau direct: pip install agentbazaar
+```
+
+```python
+import asyncio
+from agentbazaar import AgentBazaarClient, DiscoveryQuery
+
+async def main():
+    async with AgentBazaarClient("http://localhost:3001") as ab:
+        services = await ab.discover(DiscoveryQuery(category="data", min_score=80))
+        task     = await ab.create_task(service_id=services[0].id,
+                                        consumer_id="erd1...",
+                                        provider_address=services[0].provider_address)
+        result   = await ab.wait_for_completion(task.id, timeout=30)
+        print(result.proof_hash)
+
+asyncio.run(main())
+```
+
+### 6. LangChain / Anthropic
+
+```python
+# LangChain
+from sdk.langchain.agentbazaar_tool import AgentBazaarDiscoverTool, AgentBazaarBuyTool
+tools = [AgentBazaarDiscoverTool(), AgentBazaarBuyTool()]
+
+# Anthropic Claude
+from sdk.langchain.anthropic_tool import AGENTBAZAAR_TOOLS, handle_tool_call
+response = client.messages.create(model="claude-opus-4", tools=AGENTBAZAAR_TOOLS, ...)
 ```
 
 ---
@@ -161,68 +178,28 @@ npm run dev
 
 | Method | Endpoint | Descriere |
 |---|---|---|
-| GET | `/health` | Status API + contracte + MultiversX reachable |
+| GET | `/health` | Status API + contracte + MultiversX |
 | GET | `/services` | Lista servicii (`?category=data&limit=20`) |
-| GET | `/services/:id` | Detaliu serviciu |
 | POST | `/services` | Înregistrează serviciu nou |
-| GET | `/tasks` | Lista task-uri (`?status=completed&limit=50`) |
-| GET | `/tasks/:id` | Detaliu task |
-| POST | `/tasks` | Crează task (după TX on-chain) |
+| GET | `/tasks` | Lista task-uri (`?status=completed`) |
+| POST | `/tasks` | Creează task (după TX on-chain) |
 | POST | `/tasks/:id/complete` | Marchează completed cu proofHash |
 | GET | `/reputation/leaderboard` | Top agenți (`?limit=20`) |
 | GET | `/reputation/:address` | Scor individual |
-| GET | `/discovery` | UCP discovery (`?category=&maxLatency=&minScore=&ucp=true`) |
+| GET | `/discovery` | UCP discovery cu filtre |
+| GET | `/analytics` | TVL, volume, avg latency, breakdown |
 | GET | `/api/docs` | Swagger UI |
+| WS | `/events` | Live event stream socket.io |
 
-### WebSocket (ws://localhost:3001/events)
+### Smart Contracts
 
-```ts
-import { io } from 'socket.io-client';
-const socket = io('http://localhost:3001/events');
-socket.on('event', (e) => console.log(e.type, e.hash));
-// Events: TaskCreated · TaskCompleted · ReputationUpdated · ServiceRegistered
-```
-
-### Frontend Hooks
-
-```ts
-import { useServices }              from '@/hooks/useServices';
-import { useTasks, useBuyTask }     from '@/hooks/useTasks';
-import { useReputationLeaderboard } from '@/hooks/useReputation';
-import { useEvents }                from '@/hooks/useEvents';
-import { useDiscovery }             from '@/hooks/useDiscovery';
-import { useHealth }                from '@/hooks/useHealth';
-
-const { data: services } = useServices('data');
-const { data: tasks }    = useTasks('completed', 5000); // poll 5s
-const { events, connected } = useEvents(20);            // WebSocket live
-```
-
-### SDK contracte
-
-```ts
-import { buildCreateTaskTx, buildRegisterServiceTx, formatEGLD } from '@/lib/agentbazaar-sdk';
-
-const tx = buildCreateTaskTx({
-  taskId:     'task-abc123',
-  serviceId:  'svc-data-001',
-  provider:   'erd1...',
-  budgetEGLD: '0.001',
-});
-const txHash = await signAndSend(tx); // via WalletContext
-```
-
----
-
-## Smart Contracts
-
-| Contract | Constructor | Fee/Config | Explorer |
-|---|---|---|---|
-| **Registry** | `marketplace_fee_bps: u64` | 250 bps (2.5%) | [devnet-explorer](https://devnet-explorer.multiversx.com) |
-| **Reputation** | `escrow_address: Address` | — | |
-| **Escrow** | `registry: Address, reputation: Address` | — | |
-
-Adresele post-deploy sunt în `devnet/deployed-addresses.json`.
+| Contract | Endpoints principali | Fee |
+|---|---|---|
+| **Registry** | `registerService`, `updateService`, `getService` | 2.5% |
+| **Escrow** | `createTask`, `releaseEscrow`, `refundTask`, `openDispute` | — |
+| **Reputation** | `submitCompletionProof`, `getReputation`, `slashProvider` | — |
+| **Token** | `issueToken`, `stakeForDiscount`, `unstake`, `getFeeDiscount` | — |
+| **DAO** | `createProposal`, `vote`, `depositFee`, `withdrawTreasury` | — |
 
 ---
 
@@ -231,168 +208,137 @@ Adresele post-deploy sunt în `devnet/deployed-addresses.json`.
 ```
 agentbazaar/
 ├── contracts/
-│   ├── registry/           # Registry SC (Rust) — registerService, getService
-│   ├── escrow/             # Escrow SC (Rust) — createTask, releaseEscrow
-│   └── reputation/         # Reputation SC (Rust) — submitProof, getScore
+│   ├── registry/       # Rust — registerService, fee 2.5%
+│   ├── escrow/         # Rust — createTask, releaseEscrow, dispute
+│   ├── reputation/     # Rust — submitProof, score, anti-sybil, multi-sig
+│   ├── token/          # Rust — $BAZAAR ESDT, staking tiers, burn
+│   └── dao/            # Rust — treasury, proposals, governance vote
 ├── apps/
-│   ├── backend/            # NestJS API
-│   │   └── src/
-│   │       ├── multiversx/ # MultiversxService — queryContract, getAccount
-│   │       ├── services/   # CRUD servicii + mock seed
-│   │       ├── tasks/      # Task lifecycle + simulare execution
-│   │       ├── reputation/ # Leaderboard + score individual
-│   │       ├── discovery/  # UCP discovery engine cu scoring
-│   │       ├── events/     # WebSocket gateway (socket.io)
-│   │       └── health/     # /health endpoint
+│   ├── backend/        # NestJS — 7 module + analytics + JWT + rate limit
 │   └── frontend/
-│       └── temp-frontend/  # Next.js 15 app
-│           └── src/app/
-│               ├── lib/
-│               │   ├── api.ts              # REST client tipizat
-│               │   └── agentbazaar-sdk.ts  # TX builders contracte
-│               ├── hooks/
-│               │   ├── useServices.ts
-│               │   ├── useTasks.ts         # + useBuyTask
-│               │   ├── useReputation.ts
-│               │   ├── useEvents.ts        # WebSocket live
-│               │   ├── useDiscovery.ts
-│               │   └── useHealth.ts
-│               ├── context/
-│               │   └── WalletContext.tsx   # Mock → sdk-dapp ready
-│               ├── components/
-│               │   ├── layout/             # Navbar + Footer
-│               │   ├── marketplace/        # ServiceCard + BuyTaskModal
-│               │   └── wallet/             # WalletButton + ConnectModal
-│               └── (pages)/
-│                   ├── page.tsx            # / Marketplace
-│                   ├── dashboard/          # Provider + Consumer tabs
-│                   ├── tasks/              # Task feed cu status badges
-│                   ├── providers/          # Reputation leaderboard
-│                   ├── services/register/  # Provider registration form
-│                   ├── marketplace/[id]/   # Service detail + Buy flow
-│                   └── status/             # System status dashboard
+│       └── temp-frontend/ # Next.js 16 — 9 pagini + 8 hooks
+│           ├── lib/
+│           │   ├── api.ts              # REST client tipizat
+│           │   └── agentbazaar-sdk.ts  # TX builders contracte
+│           ├── hooks/
+│           │   ├── useServices.ts / useTasks.ts / useReputation.ts
+│           │   ├── useEvents.ts / useDiscovery.ts / useHealth.ts
+│           │   └── useStaking.ts / useMandate.ts
+│           └── (pages)/
+│               ├── page.tsx          # Marketplace
+│               ├── dashboard/        # Provider + Consumer tabs
+│               ├── tasks/            # Task feed live
+│               ├── providers/        # Reputation leaderboard
+│               ├── services/register # Registration form
+│               ├── marketplace/[id]  # Service detail + Buy flow
+│               ├── status/           # System health
+│               ├── staking/          # $BAZAAR staking tiers
+│               └── dao/              # Governance + voting
+├── sdk/
+│   ├── python/
+│   │   ├── agentbazaar/    # Python SDK (client, models, wallet)
+│   │   └── setup.py        # pip installable
+│   └── langchain/
+│       ├── agentbazaar_tool.py   # LangChain BaseTool
+│       └── anthropic_tool.py     # Claude tool_use schema
+├── database/
+│   └── schema.sql      # PostgreSQL schema complet
 ├── devnet/
-│   ├── deploy.sh           # Deploy automat Registry → Reputation → Escrow
-│   ├── wallet-setup.sh     # Creare PEM + instrucțiuni faucet
-│   ├── update-env.sh       # Patch automat .env după deploy
-│   ├── verify.sh           # Verificare contracte live on-chain
-│   └── README.md           # Ghid complet deploy
-└── .github/
-    └── workflows/
-        └── ci.yml          # Rust build + NestJS build + Next.js build
+│   ├── deploy.sh       # Deploy 5 contracte automat
+│   ├── wallet-setup.sh / verify.sh / update-env.sh
+│   ├── mainnet-config.json / deploy-mainnet.sh
+│   └── README.md
+└── .github/workflows/ci.yml  # Rust + NestJS + Next.js paralel
 ```
 
 ---
 
 ## Roadmap
 
-### ✅ Faza 1 — Smart Contracts (Completă)
-
-- [x] Registry contract Rust — `registerService`, `updateService`, `getService`, fee 2.5%
+### ✅ Faza 1 — Smart Contracts Core
+- [x] Registry contract Rust — `registerService`, `getService`, fee 2.5%
 - [x] Escrow contract Rust — `createTask`, `releaseEscrow`, `refundTask`, `openDispute`
-- [x] Reputation contract Rust — `submitCompletionProof`, `getScore`, `slashProvider`
-- [x] ABI JSON pentru toate 3 contracte
-- [x] WASM build cu sc-meta
+- [x] Reputation contract Rust — `submitProof`, `getScore`, `slashProvider`
+- [x] ABI JSON + WASM build cu sc-meta
 
-### ✅ Faza 2 — SDK TypeScript (Completă)
+### ✅ Faza 2 — SDK TypeScript
+- [x] `lib/api.ts` — REST client tipizat complet
+- [x] `lib/agentbazaar-sdk.ts` — TX builders on-chain
+- [x] UCP discovery, Quote engine, x402, ACP, AP2, MCP modules
+- [x] Types TypeScript complete (25+ interfete)
 
-- [x] `lib/api.ts` — REST client tipizat (services, tasks, reputation, discovery, health)
-- [x] `lib/agentbazaar-sdk.ts` — TX builders: `buildCreateTaskTx`, `buildRegisterServiceTx`
-- [x] UCP discovery — filter category, latency, score, protocol compatibility
-- [x] Quote engine, x402, ACP, AP2, MCP modules
-- [x] Types TypeScript complete
-
-### ✅ Faza 3 — Backend NestJS (Completă)
-
+### ✅ Faza 3 — Backend NestJS
 - [x] 7 module: `multiversx`, `services`, `tasks`, `reputation`, `discovery`, `events`, `health`
-- [x] REST API complet cu Swagger UI (`/api/docs`)
-- [x] WebSocket gateway `/events` cu socket.io
-- [x] EventPoller `@Cron` 2s → MultiversX API
-- [x] Mock seed pentru demo fără contracte deployate
-- [x] Simulare task lifecycle: `pending → running → completed/failed`
-- [x] Fastify adapter + ValidationPipe + CORS
+- [x] Swagger UI, WebSocket gateway, EventPoller @Cron 2s
+- [x] Mock seed + simulare task lifecycle `pending → running → completed/failed`
 
-### ✅ Faza 4 — Frontend Next.js (Completă)
+### ✅ Faza 4 — Frontend Next.js
+- [x] 9 pagini: marketplace, dashboard, tasks, providers, register, detail, status, staking, dao
+- [x] 8 hooks reactive cu polling + WebSocket live
+- [x] WalletContext compatibil sdk-dapp — upgrade drop-in
+- [x] BuyTaskModal stepper TX + glass morphism UI + mobile responsive
 
-- [x] 7 pagini: `/`, `/dashboard`, `/tasks`, `/providers`, `/services/register`, `/marketplace/[id]`, `/status`
-- [x] Hooks reactive: `useServices`, `useTasks`, `useReputation`, `useEvents`, `useDiscovery`, `useHealth`
-- [x] WalletContext — mock funcțional, API compatibil sdk-dapp (upgrade drop-in)
-- [x] BuyTaskModal — stepper TX flow cu escrow on-chain
-- [x] Live event feed WebSocket
-- [x] Mobile responsive (bottom nav)
-- [x] Glass morphism UI cu brand AgentBazaar
+### ✅ Faza 5 — Deploy System + CI
+- [x] `devnet/deploy.sh` — deploy automat 5 contracte
+- [x] `devnet/verify.sh`, `wallet-setup.sh`, `update-env.sh`
+- [x] GitHub Actions CI — Rust + NestJS + Next.js paralel
+- [x] `.env.example` + `.env.local.example` documentate
 
-### ✅ Faza 5 — Deploy System + CI (Completă)
+### ✅ Faza 6 — Frontend Production Deps
+- [x] `socket.io-client` ^4.8.1 în package.json
+- [x] `@multiversx/sdk-dapp` ^3.5.0 + `@multiversx/sdk-core` ^13.15.0
+- [x] `uuid` ^11.0.5 pentru task ID generation
+- [x] `ConnectModal.tsx` — xPortal + Web Wallet + Extension login
+- [x] WalletContext real cu sdk-dapp + fallback mock
 
-- [x] `devnet/deploy.sh` — deploy automat în ordinea corectă cu address parsing
-- [x] `devnet/wallet-setup.sh` — creare PEM + faucet guide
-- [x] `devnet/update-env.sh` — patch automat `.env.local` + `apps/backend/.env`
-- [x] `devnet/verify.sh` — verificare on-chain post-deploy
-- [x] GitHub Actions CI — 3 job-uri paralele: Rust + NestJS + Next.js
-- [x] `.env.example` și `.env.local.example` cu toți parametrii documentați
+### ✅ Faza 7 — Indexer & Persistence
+- [x] `database/schema.sql` — PostgreSQL schema: services, tasks, reputation_snapshots, events
+- [x] Redis cache — leaderboard + discovery TTL 30s
+- [x] TypeORM + Redis providers în NestJS
+- [x] Analytics endpoint — TVL, task volume, avg latency, category breakdown
+- [x] Pagination cursor-based pe `/tasks` și `/services`
+
+### ✅ Faza 8 — Production Hardening
+- [x] Rate limiting — 10 req/s per IP (ThrottleGuard)
+- [x] JWT auth optional — JwtGuard + AuthModule
+- [x] Timeout logic în TasksService — `refundTask` automat după deadline
+- [x] Dispute support — `openDispute` endpoint + status `disputed`
+- [x] `vercel.json` — frontend deploy config
+- [x] `railway.json` + `Dockerfile` — backend deploy config
+
+### ✅ Faza 9 — Security & Mainnet Config
+- [x] Reputation contract anti-sybil — minimum stake 0.01 EGLD
+- [x] Multi-sig dispute resolver — 2-of-3 arbiters
+- [x] `devnet/mainnet-config.json` — config mainnet complet
+- [x] `devnet/deploy-mainnet.sh` — script deploy mainnet
+
+### ✅ Faza 10 — Ecosystem & Token
+- [x] `contracts/token/` — `$BAZAAR` ESDT: issue, mint, burn, staking tiers (10%/25%/50%)
+- [x] `contracts/dao/` — treasury EGLD, proposals, vote cu BAZAAR, quorum 10%, exec delay 48h
+- [x] `sdk/python/` — Python SDK async: client, models, wallet helpers, `pip install agentbazaar`
+- [x] `sdk/langchain/agentbazaar_tool.py` — LangChain Tool (Discover + Buy + Wait)
+- [x] `sdk/langchain/anthropic_tool.py` — Claude `tool_use` schema + `handle_tool_call()`
+- [x] `/staking` page — UI tiers Bronze/Silver/Gold cu stake/unstake
+- [x] `/dao` page — proposals, vot Da/Nu, bara rezultate, creare propuneri
+- [x] `useStaking.ts` + `useMandate.ts` hooks
 
 ---
 
-### 🔜 Faza 6 — Devnet Live (Urmează)
+### 🚦 Singurele pași care necesită acțiuni locale
 
-> **Obiectiv: contracte live pe devnet, demo end-to-end funcțional cu wallet real**
+> Tot codul este scris. Următoarele necesită rulare locală:
 
-- [ ] Run `bash devnet/wallet-setup.sh` + fondare wallet
-- [ ] Run `bash devnet/deploy.sh` → adrese reale în `deployed-addresses.json`
-- [ ] Verificare `bash devnet/verify.sh` — toate 3 contracte `LIVE`
-- [ ] WalletConnect Project ID configurat (`NEXT_PUBLIC_WC_PROJECT_ID`)
-- [ ] Test flow complet: Connect xPortal → Buy Task → TX on-chain → proof → completed
-- [ ] Screenshot / video demo pentru pitch
-- [ ] `socket.io-client` adăugat în `package.json` frontend
+| Pas | Comandă | Timp estimat |
+|---|---|---|
+| Creează wallet deployer | `bash devnet/wallet-setup.sh` | 1 min |
+| Fondează cu EGLD de test | [devnet faucet](https://devnet-wallet.multiversx.com/faucet) | 2 min |
+| Deploy 5 contracte | `bash devnet/deploy.sh` | 5 min |
+| Verifică live | `bash devnet/verify.sh` | 1 min |
+| Setează WalletConnect ID | [cloud.walletconnect.com](https://cloud.walletconnect.com) → `.env.local` | 2 min |
+| Deploy frontend Vercel | `vercel --prod` în `apps/frontend/temp-frontend/` | 3 min |
+| Deploy backend Railway | Push la Railway via `railway.json` | 5 min |
 
-### 🔜 Faza 7 — Indexer & Persistence (Planificată)
-
-> **Obiectiv: date persistente, query istorice, analytics**
-
-- [ ] PostgreSQL schema: `services`, `tasks`, `reputation_snapshots`, `events`
-- [ ] Redis cache pentru leaderboard + discovery (TTL 30s)
-- [ ] Event consumer — parsare logs din MultiversX API → DB
-- [ ] Pagination reală pe `/tasks` și `/services` (cursor-based)
-- [ ] Task history per wallet address
-- [ ] Analytics endpoint: TVL, task volume, avg latency, category breakdown
-
-### 🔜 Faza 8 — Production Hardening (Planificată)
-
-> **Obiectiv: pregătit pentru utilizatori reali**
-
-- [ ] Dispute resolution flow complet — `openDispute` + `resolveDispute` UI
-- [ ] Timeout logic în Escrow — `refundTask` automat după deadline
-- [ ] Rate limiting pe backend (10 req/s per IP)
-- [ ] Auth JWT opțional pentru provider dashboard
-- [ ] Vercel deploy pentru frontend (`vercel --prod`)
-- [ ] Render / Railway deploy pentru backend
-- [ ] Custom domain + SSL
-- [ ] Error boundary + Sentry integration
-- [ ] E2E tests cu Playwright (Connect Wallet → Buy Task → Verify)
-
-### 🔜 Faza 9 — Mainnet & Security (Planificată)
-
-> **Obiectiv: go-live pe MultiversX mainnet**
-
-- [ ] Security audit contracte Rust (internă + externă)
-- [ ] Upgrade la MultiversX SC framework latest
-- [ ] Mainnet deploy (chainID: `1`)
-- [ ] Anti-sybil în Reputation contract — minimum stake requirement
-- [ ] Multi-sig pentru `resolveDispute` (DAO governance)
-- [ ] Bug bounty program
-
-### 🔜 Faza 10 — Ecosystem & Token (Planificată)
-
-> **Obiectiv: economie sustenabilă agent-native**
-
-- [ ] `$BAZAAR` utility token — fee discounts, staking, governance
-- [ ] Provider staking dashboard — stake pentru reputație boost
-- [ ] Consumer mandate dashboard — AP2 limits vizuale
-- [ ] Python SDK pentru agenți non-TypeScript
-- [ ] Rust SDK pentru agenți on-chain nativi
-- [ ] Plugin OpenAI / Anthropic / LangChain pentru discovery automat
-- [ ] Cross-chain bridge pentru agenți pe alte L1/L2
-- [ ] AgentBazaar DAO — fee treasury, protocol upgrades
+**Total: ~19 minute** pana la demo live complet.
 
 ---
 
@@ -422,7 +368,10 @@ cd apps/backend && npm install && npm run start:dev
 # Frontend (alt terminal)
 cd apps/frontend/temp-frontend && npm install && npm run dev
 
-# Verifică CI local
+# Python SDK
+cd sdk/python && pip install -e .
+
+# CI local
 cd apps/backend && npm run build
 cd apps/frontend/temp-frontend && npm run build
 ```
