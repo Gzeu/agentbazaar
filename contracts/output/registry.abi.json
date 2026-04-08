@@ -1,0 +1,284 @@
+{
+    "buildInfo": {
+        "rustc": {
+            "version": "1.89.0",
+            "commitHash": "29483883eed69d5fb4db01964cdf2af4d86e9cb2",
+            "commitDate": "2025-08-04",
+            "channel": "Stable",
+            "short": "rustc 1.89.0 (29483883e 2025-08-04)"
+        },
+        "contractCrate": {
+            "name": "registry",
+            "version": "0.1.0"
+        },
+        "framework": {
+            "name": "multiversx-sc",
+            "version": "0.54.6"
+        }
+    },
+    "name": "RegistryContract",
+    "constructor": {
+        "inputs": [
+            {
+                "name": "marketplace_fee_bps",
+                "type": "u64"
+            }
+        ],
+        "outputs": []
+    },
+    "upgradeConstructor": {
+        "inputs": [],
+        "outputs": []
+    },
+    "endpoints": [
+        {
+            "docs": [
+                "Register a new service. Requires MIN_STAKE EGLD attached."
+            ],
+            "name": "registerService",
+            "mutability": "mutable",
+            "payableInTokens": [
+                "EGLD"
+            ],
+            "inputs": [
+                {
+                    "name": "service_id",
+                    "type": "bytes"
+                },
+                {
+                    "name": "name",
+                    "type": "bytes"
+                },
+                {
+                    "name": "category",
+                    "type": "bytes"
+                },
+                {
+                    "name": "endpoint_url",
+                    "type": "bytes"
+                },
+                {
+                    "name": "pricing_model",
+                    "type": "bytes"
+                },
+                {
+                    "name": "price",
+                    "type": "BigUint"
+                },
+                {
+                    "name": "metadata_uri",
+                    "type": "bytes"
+                }
+            ],
+            "outputs": []
+        },
+        {
+            "docs": [
+                "Update price and active status of an existing service."
+            ],
+            "name": "updateService",
+            "mutability": "mutable",
+            "inputs": [
+                {
+                    "name": "service_id",
+                    "type": "bytes"
+                },
+                {
+                    "name": "new_price",
+                    "type": "BigUint"
+                },
+                {
+                    "name": "active",
+                    "type": "bool"
+                }
+            ],
+            "outputs": []
+        },
+        {
+            "docs": [
+                "Deregister a service and return stake to provider."
+            ],
+            "name": "deregisterService",
+            "mutability": "mutable",
+            "inputs": [
+                {
+                    "name": "service_id",
+                    "type": "bytes"
+                }
+            ],
+            "outputs": []
+        },
+        {
+            "name": "getService",
+            "mutability": "readonly",
+            "inputs": [
+                {
+                    "name": "service_id",
+                    "type": "bytes"
+                }
+            ],
+            "outputs": [
+                {
+                    "type": "optional<ServiceRecord>",
+                    "multi_result": true
+                }
+            ]
+        },
+        {
+            "name": "getServicesByProvider",
+            "mutability": "readonly",
+            "inputs": [
+                {
+                    "name": "provider",
+                    "type": "Address"
+                }
+            ],
+            "outputs": [
+                {
+                    "type": "variadic<bytes>",
+                    "multi_result": true
+                }
+            ]
+        },
+        {
+            "name": "getMarketplaceFeeBps",
+            "mutability": "readonly",
+            "inputs": [],
+            "outputs": [
+                {
+                    "type": "u64"
+                }
+            ]
+        },
+        {
+            "name": "serviceExists",
+            "mutability": "readonly",
+            "inputs": [
+                {
+                    "name": "service_id",
+                    "type": "bytes"
+                }
+            ],
+            "outputs": [
+                {
+                    "type": "bool"
+                }
+            ]
+        },
+        {
+            "name": "setMarketplaceFee",
+            "mutability": "mutable",
+            "inputs": [
+                {
+                    "name": "fee_bps",
+                    "type": "u64"
+                }
+            ],
+            "outputs": []
+        }
+    ],
+    "events": [
+        {
+            "identifier": "serviceRegistered",
+            "inputs": [
+                {
+                    "name": "service_id",
+                    "type": "bytes",
+                    "indexed": true
+                },
+                {
+                    "name": "provider",
+                    "type": "Address",
+                    "indexed": true
+                },
+                {
+                    "name": "name",
+                    "type": "bytes"
+                }
+            ]
+        },
+        {
+            "identifier": "serviceUpdated",
+            "inputs": [
+                {
+                    "name": "service_id",
+                    "type": "bytes",
+                    "indexed": true
+                },
+                {
+                    "name": "provider",
+                    "type": "Address",
+                    "indexed": true
+                },
+                {
+                    "name": "active",
+                    "type": "bool"
+                }
+            ]
+        },
+        {
+            "identifier": "serviceDeregistered",
+            "inputs": [
+                {
+                    "name": "service_id",
+                    "type": "bytes",
+                    "indexed": true
+                },
+                {
+                    "name": "provider",
+                    "type": "Address",
+                    "indexed": true
+                }
+            ]
+        }
+    ],
+    "esdtAttributes": [],
+    "hasCallback": false,
+    "types": {
+        "ServiceRecord": {
+            "type": "struct",
+            "fields": [
+                {
+                    "name": "provider",
+                    "type": "Address"
+                },
+                {
+                    "name": "name",
+                    "type": "bytes"
+                },
+                {
+                    "name": "category",
+                    "type": "bytes"
+                },
+                {
+                    "name": "endpoint_url",
+                    "type": "bytes"
+                },
+                {
+                    "name": "pricing_model",
+                    "type": "bytes"
+                },
+                {
+                    "name": "price",
+                    "type": "BigUint"
+                },
+                {
+                    "name": "metadata_uri",
+                    "type": "bytes"
+                },
+                {
+                    "name": "stake",
+                    "type": "BigUint"
+                },
+                {
+                    "name": "active",
+                    "type": "bool"
+                },
+                {
+                    "name": "registered_at",
+                    "type": "u64"
+                }
+            ]
+        }
+    }
+}

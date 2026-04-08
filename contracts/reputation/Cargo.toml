@@ -9,9 +9,11 @@ path = "src/lib.rs"
 
 [dependencies.multiversx-sc]
 version = "0.54.0"
-features = []
 
 [dev-dependencies.multiversx-sc-scenario]
+version = "0.54.0"
+
+[dependencies.multiversx-sc-meta-lib]
 version = "0.54.0"
 
 [[bin]]

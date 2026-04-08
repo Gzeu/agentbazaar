@@ -3,21 +3,26 @@
 multiversx_sc::imports!();
 multiversx_sc::derive_imports!();
 
-pub mod events;
-pub mod storage;
-pub mod views;
-
-use storage::ServiceRecord;
+#[derive(TopEncode, TopDecode, NestedEncode, NestedDecode, ManagedVecItem, Clone)]
+#[type_abi]
+pub struct ServiceRecord<M: ManagedTypeApi> {
+    pub provider: ManagedAddress<M>,
+    pub name: ManagedBuffer<M>,
+    pub category: ManagedBuffer<M>,
+    pub endpoint_url: ManagedBuffer<M>,
+    pub pricing_model: ManagedBuffer<M>,
+    pub price: BigUint<M>,
+    pub metadata_uri: ManagedBuffer<M>,
+    pub stake: BigUint<M>,
+    pub active: bool,
+    pub registered_at: u64,
+}
 
 /// Minimum stake required to register a service (0.05 EGLD).
 pub const MIN_STAKE: u64 = 50_000_000_000_000_000;
 
 #[multiversx_sc::contract]
-pub trait RegistryContract:
-    storage::StorageModule
-    + views::ViewsModule
-    + events::EventsModule
-{
+pub trait RegistryContract {
     #[init]
     fn init(&self, marketplace_fee_bps: u64) {
         self.marketplace_fee_bps().set(marketplace_fee_bps);
@@ -26,6 +31,49 @@ pub trait RegistryContract:
 
     #[upgrade]
     fn upgrade(&self) {}
+
+    // ----------------------------------------------------------------
+    // Storage
+    // ----------------------------------------------------------------
+
+    #[storage_mapper("services")]
+    fn services(&self) -> MapMapper<ManagedBuffer, ServiceRecord<Self::Api>>;
+
+    #[storage_mapper("providerServices")]
+    fn provider_services(&self, provider: &ManagedAddress) -> UnorderedSetMapper<ManagedBuffer>;
+
+    #[storage_mapper("marketplaceFeeBps")]
+    fn marketplace_fee_bps(&self) -> SingleValueMapper<u64>;
+
+    #[storage_mapper("owner")]
+    fn owner(&self) -> SingleValueMapper<ManagedAddress>;
+
+    // ----------------------------------------------------------------
+    // Events
+    // ----------------------------------------------------------------
+
+    #[event("serviceRegistered")]
+    fn emit_service_registered(
+        &self,
+        #[indexed] service_id: &ManagedBuffer,
+        #[indexed] provider: &ManagedAddress,
+        name: &ManagedBuffer,
+    );
+
+    #[event("serviceUpdated")]
+    fn emit_service_updated(
+        &self,
+        #[indexed] service_id: &ManagedBuffer,
+        #[indexed] provider: &ManagedAddress,
+        active: bool,
+    );
+
+    #[event("serviceDeregistered")]
+    fn emit_service_deregistered(
+        &self,
+        #[indexed] service_id: &ManagedBuffer,
+        #[indexed] provider: &ManagedAddress,
+    );
 
     // ----------------------------------------------------------------
     // Write endpoints
@@ -75,8 +123,6 @@ pub trait RegistryContract:
             &service_id,
             &caller,
             &name,
-            &category,
-            &price,
         );
     }
 
@@ -117,6 +163,40 @@ pub trait RegistryContract:
         }
 
         self.emit_service_deregistered(&service_id, &caller);
+    }
+
+    // ----------------------------------------------------------------
+    // View endpoints
+    // ----------------------------------------------------------------
+
+    #[view(getService)]
+    fn get_service(&self, service_id: ManagedBuffer) -> OptionalValue<ServiceRecord<Self::Api>> {
+        match self.services().get(&service_id) {
+            Some(r) => OptionalValue::Some(r),
+            None => OptionalValue::None,
+        }
+    }
+
+    #[view(getServicesByProvider)]
+    fn get_services_by_provider(
+        &self,
+        provider: ManagedAddress,
+    ) -> MultiValueEncoded<ManagedBuffer> {
+        let mut result = MultiValueEncoded::new();
+        for id in self.provider_services(&provider).iter() {
+            result.push(id);
+        }
+        result
+    }
+
+    #[view(getMarketplaceFeeBps)]
+    fn get_marketplace_fee_bps(&self) -> u64 {
+        self.marketplace_fee_bps().get()
+    }
+
+    #[view(serviceExists)]
+    fn service_exists(&self, service_id: ManagedBuffer) -> bool {
+        self.services().contains_key(&service_id)
     }
 
     // ----------------------------------------------------------------

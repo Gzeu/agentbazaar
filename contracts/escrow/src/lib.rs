@@ -3,11 +3,28 @@
 multiversx_sc::imports!();
 multiversx_sc::derive_imports!();
 
-pub mod events;
-pub mod storage;
-pub mod views;
+#[derive(TopEncode, TopDecode, NestedEncode, NestedDecode, PartialEq, Clone)]
+#[type_abi]
+pub enum TaskStatus {
+    Pending,
+    Completed,
+    Refunded,
+    Disputed,
+}
 
-use storage::{TaskRecord, TaskStatus};
+#[derive(TopEncode, TopDecode, NestedEncode, NestedDecode, Clone)]
+#[type_abi]
+pub struct TaskRecord<M: ManagedTypeApi> {
+    pub buyer: ManagedAddress<M>,
+    pub provider: ManagedAddress<M>,
+    pub service_id: ManagedBuffer<M>,
+    pub amount: BigUint<M>,
+    pub status: TaskStatus,
+    pub payload_hash: ManagedBuffer<M>,
+    pub proof_hash: ManagedBuffer<M>,
+    pub created_at: u64,
+    pub completed_at: u64,
+}
 
 /// Dispute window: 1 hour in seconds.
 pub const DISPUTE_WINDOW: u64 = 3600;
@@ -15,11 +32,7 @@ pub const DISPUTE_WINDOW: u64 = 3600;
 pub const TASK_TIMEOUT: u64 = 300;
 
 #[multiversx_sc::contract]
-pub trait EscrowContract:
-    storage::StorageModule
-    + views::ViewsModule
-    + events::EventsModule
-{
+pub trait EscrowContract {
     #[init]
     fn init(&self, registry_address: ManagedAddress, reputation_address: ManagedAddress) {
         self.registry_address().set(&registry_address);
@@ -29,6 +42,64 @@ pub trait EscrowContract:
 
     #[upgrade]
     fn upgrade(&self) {}
+
+    // ----------------------------------------------------------------
+    // Storage
+    // ----------------------------------------------------------------
+
+    #[storage_mapper("tasks")]
+    fn tasks(&self) -> MapMapper<ManagedBuffer, TaskRecord<Self::Api>>;
+
+    #[storage_mapper("registryAddress")]
+    fn registry_address(&self) -> SingleValueMapper<ManagedAddress>;
+
+    #[storage_mapper("reputationAddress")]
+    fn reputation_address(&self) -> SingleValueMapper<ManagedAddress>;
+
+    #[storage_mapper("owner")]
+    fn owner(&self) -> SingleValueMapper<ManagedAddress>;
+
+    // ----------------------------------------------------------------
+    // Events
+    // ----------------------------------------------------------------
+
+    #[event("taskCreated")]
+    fn emit_task_created(
+        &self,
+        #[indexed] task_id: &ManagedBuffer,
+        #[indexed] buyer: &ManagedAddress,
+        #[indexed] provider: &ManagedAddress,
+    );
+
+    #[event("taskCompleted")]
+    fn emit_task_completed(
+        &self,
+        #[indexed] task_id: &ManagedBuffer,
+        #[indexed] provider: &ManagedAddress,
+        proof_hash: &ManagedBuffer,
+    );
+
+    #[event("taskRefunded")]
+    fn emit_task_refunded(
+        &self,
+        #[indexed] task_id: &ManagedBuffer,
+        #[indexed] buyer: &ManagedAddress,
+    );
+
+    #[event("disputeOpened")]
+    fn emit_dispute_opened(
+        &self,
+        #[indexed] task_id: &ManagedBuffer,
+        #[indexed] opener: &ManagedAddress,
+        reason: &ManagedBuffer,
+    );
+
+    #[event("disputeResolved")]
+    fn emit_dispute_resolved(
+        &self,
+        #[indexed] task_id: &ManagedBuffer,
+        #[indexed] winner: &ManagedAddress,
+    );
 
     // ----------------------------------------------------------------
     // Consumer endpoints
@@ -72,8 +143,6 @@ pub trait EscrowContract:
             &task_id,
             &caller,
             &provider,
-            &service_id,
-            &payment,
         );
     }
 
@@ -141,7 +210,7 @@ pub trait EscrowContract:
     // Dispute
     // ----------------------------------------------------------------
 
-    /// Open a dispute within the dispute window.
+    /// Open a dispute within dispute window.
     #[endpoint(openDispute)]
     fn open_dispute(&self, task_id: ManagedBuffer, reason: ManagedBuffer) {
         let caller = self.blockchain().get_caller();
@@ -191,5 +260,17 @@ pub trait EscrowContract:
         self.send().direct_egld(&winner, &amount);
 
         self.emit_dispute_resolved(&task_id, &winner);
+    }
+
+    // ----------------------------------------------------------------
+    // View endpoints
+    // ----------------------------------------------------------------
+
+    #[view(getTask)]
+    fn get_task(&self, task_id: ManagedBuffer) -> OptionalValue<TaskRecord<Self::Api>> {
+        match self.tasks().get(&task_id) {
+            Some(r) => OptionalValue::Some(r),
+            None => OptionalValue::None,
+        }
     }
 }
