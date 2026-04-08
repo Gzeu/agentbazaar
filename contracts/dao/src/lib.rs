@@ -3,14 +3,6 @@
 multiversx_sc::imports!();
 multiversx_sc::derive_imports!();
 
-/// AgentBazaar DAO Contract
-/// Treasury management + governance proposals.
-/// Features:
-///   - Receive protocol fees (EGLD) from Registry/Escrow
-///   - Governance proposals: parameter changes, treasury spending
-///   - Vote with staked BAZAAR (1 BAZAAR staked = 1 vote)
-///   - Quorum: 10% of circulating supply
-///   - Execution delay: 48h after vote passes
 #[derive(TopEncode, TopDecode, NestedEncode, NestedDecode, TypeAbi, Clone)]
 pub struct Proposal<M: ManagedTypeApi> {
     pub id:           u64,
@@ -29,9 +21,9 @@ pub trait AgentBazaarDAO {
     fn init(
         &self,
         bazaar_token_id: TokenIdentifier,
-        quorum_bps: u64,      // e.g. 1000 = 10%
-        vote_duration: u64,   // seconds, e.g. 259200 = 3 days
-        exec_delay: u64,      // seconds, e.g. 172800 = 48h
+        quorum_bps: u64,
+        vote_duration: u64,
+        exec_delay: u64,
     ) {
         self.bazaar_token_id().set(&bazaar_token_id);
         self.quorum_bps().set(quorum_bps);
@@ -40,19 +32,16 @@ pub trait AgentBazaarDAO {
         self.proposal_count().set(0u64);
     }
 
-    // --------------------------------------------------------- Treasury
-    /// Accept protocol fee deposits (EGLD)
     #[payable("EGLD")]
     #[endpoint(depositFee)]
     fn deposit_fee(&self) {
-        let amount = self.call_value().egld_value().clone_value();
+        let amount = self.call_value().egld().clone_value();
         let current = self.treasury_balance().get();
         self.treasury_balance().set(current + amount);
     }
 
-    /// Withdraw from treasury — requires passed proposal
     #[endpoint(withdrawTreasury)]
-    fn withdraw_treasury(&self, proposal_id: u64, to: ManagedAddress, amount: BigUint) {
+    fn withdraw_treasury(&self, _proposal_id: u64, to: ManagedAddress, amount: BigUint) {
         self.require_owner();
         let balance = self.treasury_balance().get();
         require!(balance >= amount, "Insufficient treasury");
@@ -60,11 +49,10 @@ pub trait AgentBazaarDAO {
         self.send().direct_egld(&to, &amount);
     }
 
-    // ---------------------------------------------------------- Proposals
     #[endpoint(createProposal)]
     fn create_proposal(&self, description: ManagedBuffer) -> u64 {
         let id = self.proposal_count().get() + 1;
-        let now = self.blockchain().get_block_timestamp();
+        let now = self.blockchain().get_block_timestamp_seconds();
         let proposal = Proposal {
             id,
             proposer:      self.blockchain().get_caller(),
@@ -86,36 +74,24 @@ pub trait AgentBazaarDAO {
         let caller = self.blockchain().get_caller();
         require!(!self.has_voted(proposal_id, &caller).get(), "Already voted");
         let voting_power = self.voting_power(&caller).get();
-        require!(voting_power > BigUint::zero(), "No voting power — stake BAZAAR first");
+        require!(voting_power > BigUint::zero(), "No voting power");
         let mut proposal = self.proposals(proposal_id).get();
-        let now = self.blockchain().get_block_timestamp();
+        let now = self.blockchain().get_block_timestamp_seconds();
         require!(now < proposal.created_at + self.vote_duration().get(), "Voting closed");
-        if in_favor {
-            proposal.yes_votes += voting_power;
-        } else {
-            proposal.no_votes += voting_power;
-        }
+        if in_favor { proposal.yes_votes += voting_power; } else { proposal.no_votes += voting_power; }
         self.proposals(proposal_id).set(proposal);
         self.has_voted(proposal_id, &caller).set(true);
     }
 
-    // ---------------------------------------------------------------- Views
     #[view(getTreasuryBalance)]
-    fn get_treasury_balance(&self) -> BigUint {
-        self.treasury_balance().get()
-    }
+    fn get_treasury_balance(&self) -> BigUint { self.treasury_balance().get() }
 
     #[view(getProposal)]
-    fn get_proposal(&self, id: u64) -> Proposal<Self::Api> {
-        self.proposals(id).get()
-    }
+    fn get_proposal(&self, id: u64) -> Proposal<Self::Api> { self.proposals(id).get() }
 
     #[view(getProposalCount)]
-    fn get_proposal_count(&self) -> u64 {
-        self.proposal_count().get()
-    }
+    fn get_proposal_count(&self) -> u64 { self.proposal_count().get() }
 
-    // -------------------------------------------------------------- Storage
     #[storage_mapper("bazaarTokenId")]
     fn bazaar_token_id(&self) -> SingleValueMapper<TokenIdentifier>;
 
@@ -143,7 +119,6 @@ pub trait AgentBazaarDAO {
     #[storage_mapper("votingPower")]
     fn voting_power(&self, address: &ManagedAddress) -> SingleValueMapper<BigUint>;
 
-    // --------------------------------------------------------------- Events
     #[event("proposalCreated")]
     fn proposal_created_event(&self, #[indexed] proposal_id: u64);
 

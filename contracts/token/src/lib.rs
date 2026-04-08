@@ -3,13 +3,11 @@
 multiversx_sc::imports!();
 multiversx_sc::derive_imports!();
 
-/// AgentBazaar $BAZAAR Token Contract
 #[multiversx_sc::contract]
 pub trait AgentBazaarToken {
     #[init]
     fn init(&self) {}
 
-    // ------------------------------------------------------------ Issue
     #[payable("EGLD")]
     #[endpoint(issueToken)]
     fn issue_token(
@@ -19,7 +17,7 @@ pub trait AgentBazaarToken {
         initial_supply: BigUint,
     ) {
         self.require_owner();
-        let payment = self.call_value().egld_value().clone_value();
+        let payment = self.call_value().egld().clone_value();
         self.send()
             .esdt_system_sc_proxy()
             .issue_fungible(
@@ -46,28 +44,19 @@ pub trait AgentBazaarToken {
     #[callback]
     fn issue_callback(&self, #[call_result] result: ManagedAsyncCallResult<TokenIdentifier>) {
         match result {
-            ManagedAsyncCallResult::Ok(token_id) => {
-                self.bazaar_token_id().set(&token_id);
-            }
+            ManagedAsyncCallResult::Ok(token_id) => { self.bazaar_token_id().set(&token_id); }
             ManagedAsyncCallResult::Err(_) => {}
         }
     }
 
-    // ------------------------------------------------------------- Mint
     #[endpoint(mintTokens)]
     fn mint_tokens(&self, amount: BigUint) {
         self.require_owner();
         let token_id = self.bazaar_token_id().get();
         self.send().esdt_local_mint(&token_id, 0, &amount);
-        self.send().direct_esdt(
-            &self.blockchain().get_owner_address(),
-            &token_id,
-            0,
-            &amount,
-        );
+        self.send().direct_esdt(&self.blockchain().get_owner_address(), &token_id, 0, &amount);
     }
 
-    // ------------------------------------------------------------- Burn
     #[payable("*")]
     #[endpoint(burnTokens)]
     fn burn_tokens(&self) {
@@ -78,7 +67,6 @@ pub trait AgentBazaarToken {
         self.send().esdt_local_burn(&token_id, 0, &amount);
     }
 
-    // ------------------------------------------------------------ Stake
     #[payable("*")]
     #[endpoint(stakeForDiscount)]
     fn stake_for_discount(&self) {
@@ -113,25 +101,20 @@ pub trait AgentBazaarToken {
         0
     }
 
-    // ---------------------------------------------------------------- Views
     #[view(getBazaarTokenId)]
-    fn get_bazaar_token_id(&self) -> TokenIdentifier {
-        self.bazaar_token_id().get()
-    }
+    fn get_bazaar_token_id(&self) -> TokenIdentifier { self.bazaar_token_id().get() }
 
     #[view(getStakedBalance)]
     fn get_staked_balance_view(&self, address: ManagedAddress) -> BigUint {
         self.staked_balance(&address).get()
     }
 
-    // -------------------------------------------------------------- Storage
     #[storage_mapper("bazaarTokenId")]
     fn bazaar_token_id(&self) -> SingleValueMapper<TokenIdentifier>;
 
     #[storage_mapper("stakedBalance")]
     fn staked_balance(&self, address: &ManagedAddress) -> SingleValueMapper<BigUint>;
 
-    // --------------------------------------------------------------- Events
     #[event("stake")]
     fn stake_event(&self, #[indexed] address: &ManagedAddress, amount: &BigUint);
 

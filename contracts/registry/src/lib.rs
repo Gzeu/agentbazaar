@@ -18,7 +18,6 @@ pub struct ServiceRecord<M: ManagedTypeApi> {
     pub registered_at: u64,
 }
 
-/// Minimum stake required to register a service (0.05 EGLD).
 pub const MIN_STAKE: u64 = 50_000_000_000_000_000;
 
 #[multiversx_sc::contract]
@@ -32,10 +31,6 @@ pub trait RegistryContract {
     #[upgrade]
     fn upgrade(&self) {}
 
-    // ----------------------------------------------------------------
-    // Storage
-    // ----------------------------------------------------------------
-
     #[storage_mapper("services")]
     fn services(&self) -> MapMapper<ManagedBuffer, ServiceRecord<Self::Api>>;
 
@@ -47,10 +42,6 @@ pub trait RegistryContract {
 
     #[storage_mapper("owner")]
     fn owner(&self) -> SingleValueMapper<ManagedAddress>;
-
-    // ----------------------------------------------------------------
-    // Events
-    // ----------------------------------------------------------------
 
     #[event("serviceRegistered")]
     fn emit_service_registered(
@@ -75,11 +66,6 @@ pub trait RegistryContract {
         #[indexed] provider: &ManagedAddress,
     );
 
-    // ----------------------------------------------------------------
-    // Write endpoints
-    // ----------------------------------------------------------------
-
-    /// Register a new service. Requires MIN_STAKE EGLD attached.
     #[payable("EGLD")]
     #[endpoint(registerService)]
     fn register_service(
@@ -92,7 +78,7 @@ pub trait RegistryContract {
         price: BigUint,
         metadata_uri: ManagedBuffer,
     ) {
-        let payment = self.call_value().egld_value().clone_value();
+        let payment = self.call_value().egld().clone_value();
         require!(
             payment >= BigUint::from(MIN_STAKE),
             "Insufficient stake: minimum 0.05 EGLD required"
@@ -113,20 +99,14 @@ pub trait RegistryContract {
             metadata_uri: metadata_uri.clone(),
             stake: payment.clone(),
             active: true,
-            registered_at: self.blockchain().get_block_timestamp(),
+            registered_at: self.blockchain().get_block_timestamp_seconds(),
         };
 
         self.services().insert(service_id.clone(), record);
         self.provider_services(&caller).insert(service_id.clone());
-
-        self.emit_service_registered(
-            &service_id,
-            &caller,
-            &name,
-        );
+        self.emit_service_registered(&service_id, &caller, &name);
     }
 
-    /// Update price and active status of an existing service.
     #[endpoint(updateService)]
     fn update_service(
         &self,
@@ -138,36 +118,26 @@ pub trait RegistryContract {
         let mut record = self.services().get(&service_id)
             .unwrap_or_else(|| sc_panic!("Service not found"));
         require!(record.provider == caller, "Not service owner");
-
         record.price = new_price;
         record.active = active;
         self.services().insert(service_id.clone(), record);
-
         self.emit_service_updated(&service_id, &caller, active);
     }
 
-    /// Deregister a service and return stake to provider.
     #[endpoint(deregisterService)]
     fn deregister_service(&self, service_id: ManagedBuffer) {
         let caller = self.blockchain().get_caller();
         let record = self.services().get(&service_id)
             .unwrap_or_else(|| sc_panic!("Service not found"));
         require!(record.provider == caller, "Not service owner");
-
         let stake = record.stake.clone();
         self.services().remove(&service_id);
         self.provider_services(&caller).swap_remove(&service_id);
-
         if stake > BigUint::zero() {
             self.send().direct_egld(&caller, &stake);
         }
-
         self.emit_service_deregistered(&service_id, &caller);
     }
-
-    // ----------------------------------------------------------------
-    // View endpoints
-    // ----------------------------------------------------------------
 
     #[view(getService)]
     fn get_service(&self, service_id: ManagedBuffer) -> OptionalValue<ServiceRecord<Self::Api>> {
@@ -178,10 +148,7 @@ pub trait RegistryContract {
     }
 
     #[view(getServicesByProvider)]
-    fn get_services_by_provider(
-        &self,
-        provider: ManagedAddress,
-    ) -> MultiValueEncoded<ManagedBuffer> {
+    fn get_services_by_provider(&self, provider: ManagedAddress) -> MultiValueEncoded<ManagedBuffer> {
         let mut result = MultiValueEncoded::new();
         for id in self.provider_services(&provider).iter() {
             result.push(id);
@@ -199,14 +166,9 @@ pub trait RegistryContract {
         self.services().contains_key(&service_id)
     }
 
-    // ----------------------------------------------------------------
-    // Owner endpoints
-    // ----------------------------------------------------------------
-
     #[endpoint(setMarketplaceFee)]
     fn set_marketplace_fee(&self, fee_bps: u64) {
-        let caller = self.blockchain().get_caller();
-        require!(caller == self.owner().get(), "Not owner");
+        require!(self.blockchain().get_caller() == self.owner().get(), "Not owner");
         require!(fee_bps <= 1000, "Fee too high (max 10%)");
         self.marketplace_fee_bps().set(fee_bps);
     }
