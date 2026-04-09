@@ -4,9 +4,9 @@
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
 [![MultiversX](https://img.shields.io/badge/Built%20on-MultiversX%20Supernova-blue)](https://multiversx.com)
-[![Version](https://img.shields.io/badge/version-v1.0.0--devnet--ready-brightgreen)](#roadmap)
+[![Version](https://img.shields.io/badge/version-v1.0.0--devnet--live-brightgreen)](#roadmap)
 [![CI](https://github.com/Gzeu/agentbazaar/actions/workflows/ci.yml/badge.svg)](https://github.com/Gzeu/agentbazaar/actions/workflows/ci.yml)
-[![Status](https://img.shields.io/badge/status-deploy%20ready-orange)](#quick-start)
+[![Status](https://img.shields.io/badge/status-contracts%20live%20on%20devnet-success)](#deployed-contracts)
 
 ---
 
@@ -23,6 +23,22 @@ AgentBazaar este un **marketplace permissionless pe MultiversX Supernova** unde 
 - 📊 **Guverna** protocolul via DAO — propuneri, vot cu `$BAZAAR`, treasury management
 
 Totul în **sub-secunde** — posibil datorită finalității ultra-rapide a Supernova.
+
+---
+
+## Deployed Contracts — Devnet Live ✅
+
+> Ultima rulare: **9 April 2026** · Deployer: `erd172x54cmvgaeu98mtrawdvkc5agczh202e0u8r36amxvtkx9pdsqq0wv4eq`
+
+| Contract | Adresă Devnet | Explorer |
+|---|---|---|
+| **Registry** | `erd1qqqqqqqqqqqqqpgqmyw7ln5jtwx6f4dtgqyq75rc9su9sgr92rlsagzntg` | [View](https://devnet-explorer.multiversx.com/accounts/erd1qqqqqqqqqqqqqpgqmyw7ln5jtwx6f4dtgqyq75rc9su9sgr92rlsagzntg) |
+| **Escrow** | `erd1qqqqqqqqqqqqqpgqqsp0dd9d9tl0c50w9ke9e22dre8hnk7t2rlsge3zhu` | [View](https://devnet-explorer.multiversx.com/accounts/erd1qqqqqqqqqqqqqpgqqsp0dd9d9tl0c50w9ke9e22dre8hnk7t2rlsge3zhu) |
+| **Reputation** | `erd1qqqqqqqqqqqqqpgq4xme7e4egxxsvfs2cc85nf8hzw5x73w02rlsquxpkh` | [View](https://devnet-explorer.multiversx.com/accounts/erd1qqqqqqqqqqqqqpgq4xme7e4egxxsvfs2cc85nf8hzw5x73w02rlsquxpkh) |
+| **Token ($BAZAAR)** | `erd1qqqqqqqqqqqqqpgqauyreu42l575acdjp3sqehnquzhkkss52rlskgk4yx` | [View](https://devnet-explorer.multiversx.com/accounts/erd1qqqqqqqqqqqqqpgqauyreu42l575acdjp3sqehnquzhkkss52rlskgk4yx) |
+| **DAO** | `erd1qqqqqqqqqqqqqpgq38n4npajlnynk3u7jpykkcz7l0zj0xdd2rlscgp6me` | [View](https://devnet-explorer.multiversx.com/accounts/erd1qqqqqqqqqqqqqpgq38n4npajlnynk3u7jpykkcz7l0zj0xdd2rlscgp6me) |
+
+Adresele sunt salvate local în `devnet/deployed-addresses.json`.
 
 ---
 
@@ -59,7 +75,7 @@ AI Agents sunt izolați economic. Nu există o piață descentralizată, standar
 │  └──────────────────┬───────────────────────────────────────────┘  │
 │                      │ queryContract / sendTx                          │
 │  ┌───────────────────▼───────────────────────────────────────────┐  │
-│  │  MultiversX Devnet → Mainnet (chainID: D → 1)                 │  │
+│  │  MultiversX Devnet ✅ LIVE → Mainnet (chainID: D → 1)         │  │
 │  │  Registry · Escrow · Reputation · Token($BAZAAR) · DAO        │  │
 │  └───────────────────────────────────────────────────────────────┘  │
 └──────────────────────────────────────────────────────────────────────────┘
@@ -72,12 +88,12 @@ AI Agents sunt izolați economic. Nu există o piață descentralizată, standar
 | Layer | Tehnologie | Status |
 |---|---|---|
 | Blockchain | MultiversX Supernova (chainID: `D` devnet / `1` mainnet) | ✅ |
-| Smart Contracts | Rust — Registry, Escrow, Reputation, Token, DAO | ✅ |
+| Smart Contracts | Rust — Registry, Escrow, Reputation, Token, DAO | ✅ Live pe devnet |
 | Backend API | NestJS + Fastify + WebSocket + PostgreSQL + Redis | ✅ |
 | Frontend | Next.js 16 + Tailwind + sdk-dapp v3.5 + socket.io | ✅ |
 | Wallet | xPortal / Web Wallet / Extension via sdk-dapp | ✅ |
 | Event streaming | WebSocket `/events` — 2s polling MultiversX API | ✅ |
-| Deploy system | `devnet/deploy.sh` — 5 contracte automatizat | ✅ |
+| Deploy system | `devnet/deploy_windows.py` — Windows native, fără WSL | ✅ |
 | CI/CD | GitHub Actions — Rust + NestJS + Next.js paralel | ✅ |
 | Python SDK | `sdk/python/agentbazaar` — async httpx client | ✅ |
 | AI Plugins | LangChain Tool + Anthropic `tool_use` schema | ✅ |
@@ -90,10 +106,12 @@ AI Agents sunt izolați economic. Nu există o piață descentralizată, standar
 ### Prerequizite
 
 ```bash
-pip3 install multiversx-sdk-cli   # deploy contracte
+pip install mxpy                  # deploy contracte
 cargo install multiversx-sc-meta  # build WASM
-node --version                     # Node.js 20+
+node --version                    # Node.js 20+
 ```
+
+> **Windows?** Nu ai nevoie de WSL sau bash. Folosește scripturile Python native de mai jos.
 
 ### 1. Clone
 
@@ -104,6 +122,16 @@ cd agentbazaar
 
 ### 2. Deploy contracte pe devnet
 
+**Windows (recomandat):**
+```powershell
+python devnet/wallet_setup_windows.py
+# Fondează adresa: https://devnet-wallet.multiversx.com/faucet (minim 0.1 EGLD)
+
+python devnet/deploy_windows.py   # Registry → Escrow → Reputation → Token → DAO
+python devnet/verify_windows.py   # Verifică toate contractele LIVE
+```
+
+**Linux / macOS:**
 ```bash
 bash devnet/wallet-setup.sh
 # Fondează adresa: https://devnet-wallet.multiversx.com/faucet (minim 0.2 EGLD)
@@ -244,8 +272,12 @@ agentbazaar/
 ├── database/
 │   └── schema.sql      # PostgreSQL schema complet
 ├── devnet/
-│   ├── deploy.sh       # Deploy 5 contracte automat
+│   ├── deploy_windows.py      # ✅ Windows native deploy (fără WSL)
+│   ├── wallet_setup_windows.py
+│   ├── verify_windows.py
+│   ├── deploy.sh              # Linux/macOS deploy
 │   ├── wallet-setup.sh / verify.sh / update-env.sh
+│   ├── deployed-addresses.json  # Adrese contracte curente
 │   ├── mainnet-config.json / deploy-mainnet.sh
 │   └── README.md
 └── .github/workflows/ci.yml  # Rust + NestJS + Next.js paralel
@@ -279,8 +311,9 @@ agentbazaar/
 - [x] BuyTaskModal stepper TX + glass morphism UI + mobile responsive
 
 ### ✅ Faza 5 — Deploy System + CI
-- [x] `devnet/deploy.sh` — deploy automat 5 contracte
-- [x] `devnet/verify.sh`, `wallet-setup.sh`, `update-env.sh`
+- [x] `devnet/deploy_windows.py` — deploy automat 5 contracte pe Windows (fără WSL)
+- [x] `devnet/wallet_setup_windows.py` + `verify_windows.py`
+- [x] `devnet/deploy.sh` + `verify.sh` pentru Linux/macOS
 - [x] GitHub Actions CI — Rust + NestJS + Next.js paralel
 - [x] `.env.example` + `.env.local.example` documentate
 
@@ -322,23 +355,24 @@ agentbazaar/
 - [x] `/dao` page — proposals, vot Da/Nu, bara rezultate, creare propuneri
 - [x] `useStaking.ts` + `useMandate.ts` hooks
 
+### ✅ Faza 11 — Devnet Live
+- [x] Toate 5 contracte deployed pe MultiversX Devnet (9 April 2026)
+- [x] Deploy system Windows-native fără dependință de WSL/bash
+- [x] `devnet/deployed-addresses.json` generat automat post-deploy
+- [x] `.env.local` patched automat cu adresele contractelor
+
 ---
 
-### 🚦 Singurele pași care necesită acțiuni locale
-
-> Tot codul este scris. Următoarele necesită rulare locală:
+### 🚦 Pași următori
 
 | Pas | Comandă | Timp estimat |
 |---|---|---|
-| Creează wallet deployer | `bash devnet/wallet-setup.sh` | 1 min |
-| Fondează cu EGLD de test | [devnet faucet](https://devnet-wallet.multiversx.com/faucet) | 2 min |
-| Deploy 5 contracte | `bash devnet/deploy.sh` | 5 min |
-| Verifică live | `bash devnet/verify.sh` | 1 min |
 | Setează WalletConnect ID | [cloud.walletconnect.com](https://cloud.walletconnect.com) → `.env.local` | 2 min |
+| Pornește frontend local | `npm run dev` în `apps/frontend/temp-frontend/` | 1 min |
+| Pornește backend local | `npm run start:dev` în `apps/backend/` | 2 min |
 | Deploy frontend Vercel | `vercel --prod` în `apps/frontend/temp-frontend/` | 3 min |
 | Deploy backend Railway | Push la Railway via `railway.json` | 5 min |
-
-**Total: ~19 minute** pana la demo live complet.
+| Redeploy contracte | `python devnet/deploy_windows.py` | 5 min |
 
 ---
 
