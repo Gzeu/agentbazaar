@@ -26,9 +26,8 @@ pub struct TaskRecord<M: ManagedTypeApi> {
     pub completed_at: TimestampSeconds,
 }
 
-// Use DurationSeconds for intervals (TimestampSeconds constructor is pub(crate))
-pub const DISPUTE_WINDOW: DurationSeconds = DurationSeconds::from_secs(3600);
-pub const TASK_TIMEOUT: DurationSeconds = DurationSeconds::from_secs(300);
+pub const DISPUTE_WINDOW: DurationSeconds = DurationSeconds::new(3600);
+pub const TASK_TIMEOUT: DurationSeconds = DurationSeconds::new(300);
 
 #[multiversx_sc::contract]
 pub trait EscrowContract {

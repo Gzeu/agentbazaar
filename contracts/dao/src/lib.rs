@@ -56,9 +56,8 @@ pub trait AgentBazaarDAO {
     fn create_proposal(&self, description: ManagedBuffer) -> u64 {
         let id = self.proposal_count().get() + 1;
         let now = self.now();
-        // Convert stored u64 durations to DurationSeconds for arithmetic
-        let vote_dur = DurationSeconds::from_secs(self.vote_duration().get());
-        let exec_del = DurationSeconds::from_secs(self.exec_delay().get());
+        let vote_dur = DurationSeconds::new(self.vote_duration().get());
+        let exec_del = DurationSeconds::new(self.exec_delay().get());
         let proposal = Proposal {
             id,
             proposer: self.blockchain().get_caller(),
@@ -83,7 +82,7 @@ pub trait AgentBazaarDAO {
         require!(voting_power > BigUint::zero(), "No voting power");
         let mut proposal = self.proposals(proposal_id).get();
         let now = self.now();
-        let vote_dur = DurationSeconds::from_secs(self.vote_duration().get());
+        let vote_dur = DurationSeconds::new(self.vote_duration().get());
         require!(now < proposal.created_at + vote_dur, "Voting closed");
         if in_favor { proposal.yes_votes += voting_power; } else { proposal.no_votes += voting_power; }
         self.proposals(proposal_id).set(proposal);
