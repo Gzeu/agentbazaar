@@ -18,6 +18,7 @@ async function bootstrap() {
   );
 
   app.enableCors();
+    app.setGlobalPrefix('api/v1');
 
   const config = new DocumentBuilder()
     .setTitle('AgentBazaar API')
