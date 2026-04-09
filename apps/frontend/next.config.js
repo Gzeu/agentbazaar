@@ -14,6 +14,36 @@ const nextConfig = {
         destination: '/app',
         permanent: false,
       },
+      {
+        source: '/dashboard',
+        destination: '/app/dashboard',
+        permanent: false,
+      },
+      {
+        source: '/tasks',
+        destination: '/app/tasks',
+        permanent: false,
+      },
+      {
+        source: '/providers',
+        destination: '/app/providers',
+        permanent: false,
+      },
+      {
+        source: '/services',
+        destination: '/app/services',
+        permanent: false,
+      },
+      {
+        source: '/services/register',
+        destination: '/app/services/register',
+        permanent: false,
+      },
+      {
+        source: '/services/:id',
+        destination: '/app/services/:id',
+        permanent: false,
+      },
     ];
   },
   env: {
