@@ -3,9 +3,6 @@
   "version": "0.1.0",
   "description": "Permissionless AI Agent Marketplace on MultiversX Supernova",
   "private": true,
-  "workspaces": [
-    "apps/*"
-  ],
   "packageManager": "npm@10.9.0",
   "scripts": {
     "build": "turbo run build",
