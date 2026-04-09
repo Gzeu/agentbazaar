@@ -1,248 +1,306 @@
-#!/usr/bin/env python3
-"""
-AgentBazaar Windows Deploy Script
-Foloseste: python devnet/deploy_windows.py
-"""
-import subprocess, json, sys, time, re
-from pathlib import Path
+import subprocess
+import sys
+import os
+import json
+import re
+import shutil
 
-ROOT = Path(__file__).parent.parent
-DEVNET_DIR = Path(__file__).parent
-ADDRESSES_FILE = DEVNET_DIR / "deployed-addresses.json"
-PEM_FILE = DEVNET_DIR / "deployer.pem"
+SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
+PROJECT_ROOT = os.path.dirname(SCRIPT_DIR)
+PEM_FILE = os.path.join(SCRIPT_DIR, "deployer.pem")
+CONFIG_FILE = os.path.join(SCRIPT_DIR, "network-config.json")
+ADDRESSES_FILE = os.path.join(SCRIPT_DIR, "deployed-addresses.json")
+
+CONTRACTS = ["registry", "escrow", "reputation", "token", "dao"]
+
+GAS_LIMITS = {
+    "registry": 80000000,
+    "escrow": 100000000,
+    "reputation": 80000000,
+    "token": 60000000,
+    "dao": 80000000,
+}
+
+INIT_ARGS = {
+    "registry": ["100"],
+    "reputation": ["50000000000000000"],
+    "token": ["1000000000000000000000000"],
+    "dao": ["BAZAAR-000000", "1000", "86400", "3600"],
+}
 
 PROXY = "https://devnet-gateway.multiversx.com"
 CHAIN = "D"
 
-def log(msg, color=""):
-    colors = {"green": "\033[92m", "red": "\033[91m", "yellow": "\033[93m", "blue": "\033[94m", "": ""}
-    reset = "\033[0m" if color else ""
-    print(f"{colors[color]}{msg}{reset}")
+
+def header(msg):
+    print("=" * 60)
+    print(f"  {msg}")
+    print("=" * 60)
+
+
+def info(msg): print(f"  {msg}")
+def ok(msg): print(f"  [OK] {msg}")
+def err(msg): print(f"  [ERROR] {msg}")
+def warn(msg): print(f"  [WARN] {msg}")
+
 
 def run(cmd, check=True, cwd=None):
-    log(f"  > {' '.join(str(c) for c in cmd)}", "blue")
-    result = subprocess.run(cmd, capture_output=True, text=True, cwd=cwd)
+    if isinstance(cmd, list):
+        cmd_str = " ".join(cmd)
+    else:
+        cmd_str = cmd
+    info(f"> {cmd_str}")
+    result = subprocess.run(
+        cmd if isinstance(cmd, list) else cmd_str,
+        capture_output=True, text=True, cwd=cwd,
+        shell=isinstance(cmd, str)
+    )
+    if result.stdout.strip():
+        for line in result.stdout.strip().splitlines()[-10:]:
+            print(f"    {line}")
+    if result.stderr.strip():
+        for line in result.stderr.strip().splitlines()[-20:]:
+            print(f"    {line}")
     if check and result.returncode != 0:
-        log(f"EROARE: {result.stderr[-800:]}", "red")
+        err(f"Comanda a esuat (returncode={result.returncode})")
         sys.exit(1)
     return result
 
-def find_wasm(name):
-    """Cauta WASM in toate locatiile posibile."""
-    candidates = [
-        # sc-meta output
-        ROOT / "contracts" / name / "output" / f"{name}.wasm",
-        ROOT / "contracts" / name / "output" / f"agentbazaar-{name}.wasm",
-        # cargo workspace target (agentbazaar-2/target/)
-        ROOT / "target" / "wasm32-unknown-unknown" / "release" / f"{name}.wasm",
-        # cargo local target
-        ROOT / "contracts" / name / "target" / "wasm32-unknown-unknown" / "release" / f"{name}.wasm",
-    ]
-    for p in candidates:
-        if p.exists():
-            return p
 
-    # sc-meta output glob
-    output_dir = ROOT / "contracts" / name / "output"
-    if output_dir.exists():
-        found = list(output_dir.glob("*.wasm"))
-        if found:
-            return found[0]
+def ensure_mxpy():
+    if shutil.which("mxpy"):
+        ok("mxpy gasit")
+        return
+    warn("mxpy nu este instalat. Se instaleaza acum...")
+    run([sys.executable, "-m", "pip", "install", "mxpy"], check=True)
+    # re-check
+    if shutil.which("mxpy"):
+        ok("mxpy instalat cu succes")
+    else:
+        # Try via pipx or user scripts path
+        scripts = os.path.join(os.path.dirname(sys.executable), "Scripts")
+        mxpy_path = os.path.join(scripts, "mxpy.exe")
+        if os.path.exists(mxpy_path):
+            ok(f"mxpy gasit la {mxpy_path}")
+            os.environ["PATH"] = scripts + os.pathsep + os.environ.get("PATH", "")
+        else:
+            err("mxpy nu a putut fi instalat automat.")
+            err("Ruleaza manual: pip install mxpy")
+            err("Apoi re-ruleaza acest script.")
+            sys.exit(1)
 
-    # workspace target glob - cauta orice .wasm care contine numele
-    target_release = ROOT / "target" / "wasm32-unknown-unknown" / "release"
-    if target_release.exists():
-        # exact match
-        exact = list(target_release.glob(f"{name}.wasm"))
-        if exact:
-            return exact[0]
-        # partial match (ex: agentbazaar_registry.wasm)
-        partial = [f for f in target_release.glob("*.wasm") if name in f.stem]
-        if partial:
-            return partial[0]
 
-    return None
+def get_mxpy():
+    """Return mxpy executable path."""
+    mxpy = shutil.which("mxpy")
+    if mxpy:
+        return mxpy
+    # Try Scripts subfolder next to python
+    scripts = os.path.join(os.path.dirname(sys.executable), "Scripts")
+    candidate = os.path.join(scripts, "mxpy.exe")
+    if os.path.exists(candidate):
+        return candidate
+    return "mxpy"
+
+
+def check_balance():
+    if not os.path.exists(PEM_FILE):
+        err(f"PEM file nu exista: {PEM_FILE}")
+        err("Copiaza deployer.pem in folderul devnet/")
+        sys.exit(1)
+
+    # Extract address from PEM
+    with open(PEM_FILE, "r") as f:
+        content = f.read()
+    match = re.search(r"for (erd1[a-z0-9]+)", content)
+    if not match:
+        err("Nu s-a putut extrage adresa din PEM")
+        sys.exit(1)
+    address = match.group(1)
+    print(f"\n[CHECK] Balanta pentru {address}...")
+
+    try:
+        import urllib.request
+        url = f"{PROXY}/address/{address}/balance"
+        with urllib.request.urlopen(url, timeout=10) as resp:
+            data = json.loads(resp.read())
+        balance_raw = int(data.get("data", {}).get("balance", "0"))
+        balance_egld = balance_raw / 1e18
+        info(f"Balanta: {balance_egld:.4f} xEGLD")
+        if balance_egld < 0.1:
+            warn("Balanta prea mica! Mergi la https://devnet-wallet.multiversx.com/faucet")
+            sys.exit(1)
+    except Exception as e:
+        warn(f"Nu s-a putut verifica balanta: {e}")
+
 
 def build_contract(name):
-    contract_dir = ROOT / "contracts" / name
-    if not (contract_dir / "src").exists():
-        log(f"  [SKIP] {name} - director src lipsa", "yellow")
-        return False
+    print(f"\n[BUILD] {name}...")
+    contract_path = os.path.join(PROJECT_ROOT, "contracts", name)
+    wasm_path = os.path.join(PROJECT_ROOT, "target", "wasm32-unknown-unknown", "release", f"{name}.wasm")
 
-    log(f"\n[BUILD] {name}...", "blue")
-
-    # Daca WASM exista deja, skip build
-    existing = find_wasm(name)
-    if existing:
-        log(f"  [OK] WASM existent: {existing}", "green")
-        return True
-
-    # Incearca sc-meta
-    result = run(["sc-meta", "all", "build", "--path", str(contract_dir)], check=False)
-    if result.returncode == 0:
-        wasm = find_wasm(name)
-        if wasm:
-            log(f"  [OK] sc-meta build: {wasm}", "green")
-            return True
+    # Try sc-meta first
+    if shutil.which("sc-meta"):
+        cmd = ["sc-meta", "all", "build", "--path", contract_path]
+        info(f"> sc-meta all build --path {contract_path}")
+        result = subprocess.run(cmd, capture_output=True, text=True)
+        if result.returncode == 0 and os.path.exists(wasm_path):
+            ok(f"sc-meta build: {wasm_path}")
+            return wasm_path
+        # fall through to cargo
 
     # Fallback: cargo build direct
-    log(f"  [INFO] Folosesc cargo build...", "yellow")
-    result = run(
-        ["cargo", "build", "--target", "wasm32-unknown-unknown", "--release",
-         "--manifest-path", str(contract_dir / "Cargo.toml")],
-        check=False
-    )
-    if result.returncode == 0:  # 0 = succes, warnings in stderr sunt normale
-        wasm = find_wasm(name)
-        if wasm:
-            log(f"  [OK] cargo build: {wasm}", "green")
-            return True
-        # WASM inca nu e gasit - listeaza target/ pentru debug
-        target_release = ROOT / "target" / "wasm32-unknown-unknown" / "release"
-        if target_release.exists():
-            all_wasm = list(target_release.glob("*.wasm"))
-            log(f"  [DEBUG] WASM in target/release: {[f.name for f in all_wasm]}", "yellow")
-        else:
-            log(f"  [DEBUG] target/wasm32-unknown-unknown/release/ nu exista", "yellow")
-            log(f"  [DEBUG] ROOT={ROOT}", "yellow")
-    else:
-        log(f"  [ERROR] Build esuat (returncode={result.returncode})", "red")
-        log(f"  {result.stderr[-600:]}", "red")
-
-    return False
-
-def deploy_contract(name, args=None):
-    wasm = find_wasm(name)
-    if not wasm:
-        log(f"  [SKIP] {name}.wasm nu exista - skip deploy", "yellow")
+    info("Folosesc cargo build...")
+    manifest = os.path.join(contract_path, "Cargo.toml")
+    cmd = [
+        "cargo", "build",
+        "--target", "wasm32-unknown-unknown",
+        "--release",
+        "--manifest-path", manifest
+    ]
+    result = run(cmd, check=False)
+    if result.returncode != 0:
+        err(f"Build esuat (returncode={result.returncode})")
         return None
 
-    log(f"\n[DEPLOY] {name} <- {wasm}", "blue")
+    if os.path.exists(wasm_path):
+        ok(f"cargo build: {wasm_path}")
+        return wasm_path
+    else:
+        err(f"{name}.wasm nu exista - skip deploy")
+        return None
+
+
+def deploy_contract(name, wasm_path, addresses):
+    print(f"\n[DEPLOY] {name} <- {wasm_path}")
+    mxpy = get_mxpy()
+    gas = GAS_LIMITS.get(name, 80000000)
 
     cmd = [
-        "mxpy", "contract", "deploy",
-        f"--bytecode={wasm}",
+        mxpy, "contract", "deploy",
+        f"--bytecode={wasm_path}",
         f"--pem={PEM_FILE}",
         f"--proxy={PROXY}",
         f"--chain={CHAIN}",
-        "--gas-limit=80000000",
+        f"--gas-limit={gas}",
         "--outfile=deploy-out.json",
         "--send",
-        "--wait-result",
+        "--wait-result"
     ]
+
+    # Add constructor args
+    args = INIT_ARGS.get(name)
+    if name == "escrow" and addresses.get("registry") and addresses.get("reputation"):
+        args = [addresses["registry"], addresses["reputation"]]
     if args:
-        cmd.append(f"--arguments={' '.join(args)}")
+        cmd += ["--arguments"] + args
 
     result = run(cmd, check=False)
+    if result.returncode != 0:
+        err(f"Deploy esuat pentru {name}")
+        return None
 
-    out_file = Path("deploy-out.json")
-    if out_file.exists():
+    # Parse address from output
+    output_text = result.stdout + result.stderr
+    for pattern in [
+        r'"address"\s*:\s*"(erd1[a-z0-9]+)"',
+        r'contract address:\s*(erd1[a-z0-9]+)',
+        r'(erd1[a-z0-9]{58,62})'
+    ]:
+        match = re.search(pattern, output_text)
+        if match:
+            addr = match.group(1)
+            ok(f"{name} deployed la: {addr}")
+            return addr
+
+    # Try deploy-out.json
+    if os.path.exists("deploy-out.json"):
         try:
-            data = json.loads(out_file.read_text())
-            addr = (data.get("contractAddress") or
-                    data.get("data", {}).get("transaction", {}).get("contractAddress", "") or "")
+            with open("deploy-out.json") as f:
+                data = json.load(f)
+            addr = (data.get("emitted_tx", {}).get("receiver") or
+                    data.get("contractAddress") or
+                    data.get("address"))
             if addr:
-                log(f"  [OK] {name} -> {addr}", "green")
-                out_file.unlink()
+                ok(f"{name} deployed la: {addr}")
                 return addr
-        except:
+        except Exception:
             pass
 
-    stdout = result.stdout + result.stderr
-    match = re.search(r"erd1[a-z0-9]{58}", stdout)
-    if match:
-        addr = match.group(0)
-        log(f"  [OK] {name} -> {addr}", "green")
-        return addr
-
-    log(f"  [WARN] {name} - adresa nedeterminata", "yellow")
-    log(f"  Stdout: {result.stdout[:400]}", "yellow")
-    log(f"  Stderr: {result.stderr[:400]}", "yellow")
+    warn(f"Nu s-a putut extrage adresa pentru {name}")
     return None
 
-def patch_env(addresses):
-    env_files = [
-        ROOT / "apps" / "frontend" / "temp-frontend" / ".env.local",
-        ROOT / "apps" / "backend" / ".env",
-    ]
-    mappings = {
-        "NEXT_PUBLIC_REGISTRY_ADDRESS": addresses.get("registry", ""),
-        "NEXT_PUBLIC_ESCROW_ADDRESS": addresses.get("escrow", ""),
-        "NEXT_PUBLIC_REPUTATION_ADDRESS": addresses.get("reputation", ""),
-        "REGISTRY_ADDRESS": addresses.get("registry", ""),
-        "ESCROW_ADDRESS": addresses.get("escrow", ""),
-        "REPUTATION_ADDRESS": addresses.get("reputation", ""),
-    }
-    for env_file in env_files:
-        if env_file.exists():
-            content = env_file.read_text()
-            for key, val in mappings.items():
-                if val:
-                    if re.search(f"^{key}=", content, re.MULTILINE):
-                        content = re.sub(f"^{key}=.*$", f"{key}={val}", content, flags=re.MULTILINE)
-                    else:
-                        content += f"\n{key}={val}\n"
-            env_file.write_text(content)
-            log(f"  [OK] Patched {env_file.name}", "green")
 
-def check_balance():
-    import urllib.request
-    pem_content = PEM_FILE.read_text()
-    match = re.search(r"erd1[a-z0-9]{58}", pem_content)
-    if not match:
-        log("[WARN] Nu pot citi adresa din PEM", "yellow")
-        return None
-    address = match.group(0)
-    log(f"\n[CHECK] Balanta pentru {address}...", "blue")
-    try:
-        url = f"https://devnet-api.multiversx.com/accounts/{address}"
-        with urllib.request.urlopen(url, timeout=10) as r:
-            data = json.loads(r.read())
-            balance_egld = int(data.get("balance", 0)) / 10**18
-            log(f"  Balanta: {balance_egld:.4f} xEGLD", "green" if balance_egld > 0.1 else "red")
-            if balance_egld < 0.1:
-                log(f"  [WARN] Fondeaza la: https://devnet-wallet.multiversx.com/faucet", "yellow")
-                return False
-            return True
-    except Exception as e:
-        log(f"  [WARN] Nu pot verifica balanta: {e}", "yellow")
-        return None
+def update_env(addresses):
+    """Patch .env and .env.local with deployed addresses."""
+    for env_file in [".env", ".env.local"]:
+        path = os.path.join(PROJECT_ROOT, env_file)
+        if not os.path.exists(path):
+            continue
+        with open(path, "r") as f:
+            content = f.read()
+        for name, addr in addresses.items():
+            if addr:
+                key = f"NEXT_PUBLIC_{name.upper()}_CONTRACT"
+                pattern = rf"^({key}=).*$"
+                replacement = rf"\g<1>{addr}"
+                new_content = re.sub(pattern, replacement, content, flags=re.MULTILINE)
+                if new_content == content:
+                    # key missing, append
+                    new_content += f"\n{key}={addr}"
+                content = new_content
+        with open(path, "w") as f:
+            f.write(content)
+        ok(f"Actualizat {env_file}")
+
 
 def main():
-    log("=" * 60, "green")
-    log("  AgentBazaar Deploy Script (Windows/Python)", "green")
-    log("=" * 60, "green")
+    header("AgentBazaar Deploy Script (Windows/Python)")
 
-    if not PEM_FILE.exists():
-        log(f"[ERROR] {PEM_FILE} nu exista!", "red")
-        log("Ruleaza: python devnet/wallet_setup_windows.py", "yellow")
-        sys.exit(1)
-
-    ok = check_balance()
-    if ok is False:
-        sys.exit(1)
+    ensure_mxpy()
+    check_balance()
 
     addresses = {}
-    for name in ["registry", "reputation", "escrow", "token", "dao"]:
-        build_contract(name)
-        addr = deploy_contract(name)
+    wasm_paths = {}
+
+    # Build all
+    for name in CONTRACTS:
+        wasm = build_contract(name)
+        if wasm:
+            wasm_paths[name] = wasm
+
+    if not wasm_paths:
+        warn("Niciun contract nu s-a compilat. Verifica erorile de mai sus.")
+        sys.exit(1)
+
+    # Deploy all built contracts
+    for name in CONTRACTS:
+        if name not in wasm_paths:
+            warn(f"Sar {name} (build esuat)")
+            continue
+        addr = deploy_contract(name, wasm_paths[name], addresses)
         if addr:
             addresses[name] = addr
-        time.sleep(2)
 
-    if addresses:
-        ADDRESSES_FILE.write_text(json.dumps(addresses, indent=2))
-        log(f"\n[SAVED] {ADDRESSES_FILE}", "green")
-        log(json.dumps(addresses, indent=2), "green")
-        patch_env(addresses)
-    else:
-        log("\n[WARN] Nicio adresa deployata", "yellow")
-        log("  Verifica: mxpy --version", "yellow")
-        log("  Instalare: pip install mxpy", "yellow")
+    if not addresses:
+        warn("Nicio adresa deployata")
+        sys.exit(1)
 
-    log("\n" + "=" * 60, "green")
-    log("  Deploy complet! Explorer: https://devnet-explorer.multiversx.com", "green")
-    log("=" * 60, "green")
+    # Save addresses
+    with open(ADDRESSES_FILE, "w") as f:
+        json.dump(addresses, f, indent=2)
+    ok(f"Adrese salvate in {ADDRESSES_FILE}")
+
+    # Update env files
+    update_env(addresses)
+
+    print()
+    header("Deploy complet!")
+    for name, addr in addresses.items():
+        info(f"{name:12} -> {addr}")
+    info(f"Explorer: https://devnet-explorer.multiversx.com")
+    print()
+
 
 if __name__ == "__main__":
     main()

@@ -8,7 +8,7 @@ multiversx_sc::derive_imports!();
 
 use multiversx_sc::types::TimestampSeconds;
 
-#[derive(TopEncode, TopDecode, NestedEncode, NestedDecode, ManagedVecItem, Clone)]
+#[derive(TopEncode, TopDecode, NestedEncode, NestedDecode, Clone)]
 #[type_abi]
 pub struct ServiceRecord<M: ManagedTypeApi> {
     pub provider: ManagedAddress<M>,
