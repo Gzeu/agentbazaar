@@ -4,6 +4,7 @@ import os
 import json
 import re
 import shutil
+from pathlib import Path
 
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 PROJECT_ROOT = os.path.dirname(SCRIPT_DIR)
@@ -37,23 +38,71 @@ def header(msg):
     print(f"  {msg}")
     print("=" * 60)
 
-
 def info(msg): print(f"  {msg}")
 def ok(msg): print(f"  [OK] {msg}")
 def err(msg): print(f"  [ERROR] {msg}")
 def warn(msg): print(f"  [WARN] {msg}")
 
 
+def find_mxpy():
+    """Find mxpy.exe searching common Windows locations."""
+    # 1. Already in PATH
+    found = shutil.which("mxpy")
+    if found:
+        return found
+
+    # 2. AppData\Roaming\Python\PythonXXX\Scripts (user install location for Python 3.x)
+    appdata = os.environ.get("APPDATA", "")
+    if appdata:
+        python_base = Path(appdata) / "Python"
+        if python_base.exists():
+            for pyver in sorted(python_base.iterdir(), reverse=True):
+                candidate = pyver / "Scripts" / "mxpy.exe"
+                if candidate.exists():
+                    return str(candidate)
+
+    # 3. Next to current python.exe Scripts folder
+    scripts_next_to_python = Path(sys.executable).parent / "Scripts" / "mxpy.exe"
+    if scripts_next_to_python.exists():
+        return str(scripts_next_to_python)
+
+    # 4. python -m site --user-base / Scripts
+    try:
+        result = subprocess.run(
+            [sys.executable, "-m", "site", "--user-base"],
+            capture_output=True, text=True
+        )
+        user_base = result.stdout.strip()
+        candidate = Path(user_base) / "Scripts" / "mxpy.exe"
+        if candidate.exists():
+            return str(candidate)
+    except Exception:
+        pass
+
+    return None
+
+
+def ensure_mxpy():
+    mxpy = find_mxpy()
+    if mxpy:
+        ok(f"mxpy gasit: {mxpy}")
+        return mxpy
+    warn("mxpy nu este in PATH. Se instaleaza...")
+    subprocess.run([sys.executable, "-m", "pip", "install", "mxpy"], check=True)
+    mxpy = find_mxpy()
+    if mxpy:
+        ok(f"mxpy instalat: {mxpy}")
+        return mxpy
+    err("mxpy nu a putut fi gasit dupa instalare.")
+    err("Adauga manual in PATH: %APPDATA%\\Python\\Python312\\Scripts")
+    sys.exit(1)
+
+
 def run(cmd, check=True, cwd=None):
-    if isinstance(cmd, list):
-        cmd_str = " ".join(cmd)
-    else:
-        cmd_str = cmd
+    cmd_str = " ".join(cmd) if isinstance(cmd, list) else cmd
     info(f"> {cmd_str}")
     result = subprocess.run(
-        cmd if isinstance(cmd, list) else cmd_str,
-        capture_output=True, text=True, cwd=cwd,
-        shell=isinstance(cmd, str)
+        cmd, capture_output=True, text=True, cwd=cwd
     )
     if result.stdout.strip():
         for line in result.stdout.strip().splitlines()[-10:]:
@@ -67,49 +116,11 @@ def run(cmd, check=True, cwd=None):
     return result
 
 
-def ensure_mxpy():
-    if shutil.which("mxpy"):
-        ok("mxpy gasit")
-        return
-    warn("mxpy nu este instalat. Se instaleaza acum...")
-    run([sys.executable, "-m", "pip", "install", "mxpy"], check=True)
-    # re-check
-    if shutil.which("mxpy"):
-        ok("mxpy instalat cu succes")
-    else:
-        # Try via pipx or user scripts path
-        scripts = os.path.join(os.path.dirname(sys.executable), "Scripts")
-        mxpy_path = os.path.join(scripts, "mxpy.exe")
-        if os.path.exists(mxpy_path):
-            ok(f"mxpy gasit la {mxpy_path}")
-            os.environ["PATH"] = scripts + os.pathsep + os.environ.get("PATH", "")
-        else:
-            err("mxpy nu a putut fi instalat automat.")
-            err("Ruleaza manual: pip install mxpy")
-            err("Apoi re-ruleaza acest script.")
-            sys.exit(1)
-
-
-def get_mxpy():
-    """Return mxpy executable path."""
-    mxpy = shutil.which("mxpy")
-    if mxpy:
-        return mxpy
-    # Try Scripts subfolder next to python
-    scripts = os.path.join(os.path.dirname(sys.executable), "Scripts")
-    candidate = os.path.join(scripts, "mxpy.exe")
-    if os.path.exists(candidate):
-        return candidate
-    return "mxpy"
-
-
 def check_balance():
     if not os.path.exists(PEM_FILE):
         err(f"PEM file nu exista: {PEM_FILE}")
         err("Copiaza deployer.pem in folderul devnet/")
         sys.exit(1)
-
-    # Extract address from PEM
     with open(PEM_FILE, "r") as f:
         content = f.read()
     match = re.search(r"for (erd1[a-z0-9]+)", content)
@@ -118,7 +129,6 @@ def check_balance():
         sys.exit(1)
     address = match.group(1)
     print(f"\n[CHECK] Balanta pentru {address}...")
-
     try:
         import urllib.request
         url = f"{PROXY}/address/{address}/balance"
@@ -139,17 +149,13 @@ def build_contract(name):
     contract_path = os.path.join(PROJECT_ROOT, "contracts", name)
     wasm_path = os.path.join(PROJECT_ROOT, "target", "wasm32-unknown-unknown", "release", f"{name}.wasm")
 
-    # Try sc-meta first
     if shutil.which("sc-meta"):
         cmd = ["sc-meta", "all", "build", "--path", contract_path]
-        info(f"> sc-meta all build --path {contract_path}")
         result = subprocess.run(cmd, capture_output=True, text=True)
         if result.returncode == 0 and os.path.exists(wasm_path):
             ok(f"sc-meta build: {wasm_path}")
             return wasm_path
-        # fall through to cargo
 
-    # Fallback: cargo build direct
     info("Folosesc cargo build...")
     manifest = os.path.join(contract_path, "Cargo.toml")
     cmd = [
@@ -162,22 +168,19 @@ def build_contract(name):
     if result.returncode != 0:
         err(f"Build esuat (returncode={result.returncode})")
         return None
-
     if os.path.exists(wasm_path):
         ok(f"cargo build: {wasm_path}")
         return wasm_path
-    else:
-        err(f"{name}.wasm nu exista - skip deploy")
-        return None
+    err(f"{name}.wasm nu exista - skip deploy")
+    return None
 
 
-def deploy_contract(name, wasm_path, addresses):
+def deploy_contract(name, wasm_path, addresses, mxpy_exe):
     print(f"\n[DEPLOY] {name} <- {wasm_path}")
-    mxpy = get_mxpy()
     gas = GAS_LIMITS.get(name, 80000000)
 
     cmd = [
-        mxpy, "contract", "deploy",
+        mxpy_exe, "contract", "deploy",
         f"--bytecode={wasm_path}",
         f"--pem={PEM_FILE}",
         f"--proxy={PROXY}",
@@ -188,7 +191,6 @@ def deploy_contract(name, wasm_path, addresses):
         "--wait-result"
     ]
 
-    # Add constructor args
     args = INIT_ARGS.get(name)
     if name == "escrow" and addresses.get("registry") and addresses.get("reputation"):
         args = [addresses["registry"], addresses["reputation"]]
@@ -200,20 +202,18 @@ def deploy_contract(name, wasm_path, addresses):
         err(f"Deploy esuat pentru {name}")
         return None
 
-    # Parse address from output
     output_text = result.stdout + result.stderr
     for pattern in [
         r'"address"\s*:\s*"(erd1[a-z0-9]+)"',
         r'contract address:\s*(erd1[a-z0-9]+)',
         r'(erd1[a-z0-9]{58,62})'
     ]:
-        match = re.search(pattern, output_text)
-        if match:
-            addr = match.group(1)
+        m = re.search(pattern, output_text)
+        if m:
+            addr = m.group(1)
             ok(f"{name} deployed la: {addr}")
             return addr
 
-    # Try deploy-out.json
     if os.path.exists("deploy-out.json"):
         try:
             with open("deploy-out.json") as f:
@@ -232,7 +232,6 @@ def deploy_contract(name, wasm_path, addresses):
 
 
 def update_env(addresses):
-    """Patch .env and .env.local with deployed addresses."""
     for env_file in [".env", ".env.local"]:
         path = os.path.join(PROJECT_ROOT, env_file)
         if not os.path.exists(path):
@@ -242,11 +241,10 @@ def update_env(addresses):
         for name, addr in addresses.items():
             if addr:
                 key = f"NEXT_PUBLIC_{name.upper()}_CONTRACT"
-                pattern = rf"^({key}=).*$"
-                replacement = rf"\g<1>{addr}"
-                new_content = re.sub(pattern, replacement, content, flags=re.MULTILINE)
+                new_content = re.sub(
+                    rf"^({key}=).*$", rf"\g<1>{addr}", content, flags=re.MULTILINE
+                )
                 if new_content == content:
-                    # key missing, append
                     new_content += f"\n{key}={addr}"
                 content = new_content
         with open(path, "w") as f:
@@ -256,29 +254,25 @@ def update_env(addresses):
 
 def main():
     header("AgentBazaar Deploy Script (Windows/Python)")
-
-    ensure_mxpy()
+    mxpy_exe = ensure_mxpy()
     check_balance()
 
-    addresses = {}
     wasm_paths = {}
-
-    # Build all
     for name in CONTRACTS:
         wasm = build_contract(name)
         if wasm:
             wasm_paths[name] = wasm
 
     if not wasm_paths:
-        warn("Niciun contract nu s-a compilat. Verifica erorile de mai sus.")
+        warn("Niciun contract nu s-a compilat.")
         sys.exit(1)
 
-    # Deploy all built contracts
+    addresses = {}
     for name in CONTRACTS:
         if name not in wasm_paths:
             warn(f"Sar {name} (build esuat)")
             continue
-        addr = deploy_contract(name, wasm_paths[name], addresses)
+        addr = deploy_contract(name, wasm_paths[name], addresses, mxpy_exe)
         if addr:
             addresses[name] = addr
 
@@ -286,19 +280,16 @@ def main():
         warn("Nicio adresa deployata")
         sys.exit(1)
 
-    # Save addresses
     with open(ADDRESSES_FILE, "w") as f:
         json.dump(addresses, f, indent=2)
     ok(f"Adrese salvate in {ADDRESSES_FILE}")
-
-    # Update env files
     update_env(addresses)
 
     print()
     header("Deploy complet!")
     for name, addr in addresses.items():
         info(f"{name:12} -> {addr}")
-    info(f"Explorer: https://devnet-explorer.multiversx.com")
+    info("Explorer: https://devnet-explorer.multiversx.com")
     print()
 
 
