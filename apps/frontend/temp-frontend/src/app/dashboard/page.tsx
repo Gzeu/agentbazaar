@@ -7,10 +7,10 @@ import {
   Clock, CheckCircle, Wallet, RefreshCw,
   ExternalLink, AlertCircle
 } from 'lucide-react';
+import { useWalletCtx } from '@/context/WalletContext';
 
 const BACKEND  = process.env.NEXT_PUBLIC_BACKEND_URL  ?? 'http://localhost:3001';
 const EXPLORER = process.env.NEXT_PUBLIC_MVX_EXPLORER ?? 'https://devnet-explorer.multiversx.com';
-const MVX_API  = process.env.NEXT_PUBLIC_MVX_API      ?? 'https://devnet-api.multiversx.com';
 
 type DashTab = 'consumer' | 'provider';
 
@@ -43,10 +43,10 @@ interface LiveEvent {
 function timeAgo(iso: string): string {
   const diff = Date.now() - new Date(iso).getTime();
   const s = Math.floor(diff / 1000);
-  if (s < 60)  return `${s}s ago`;
-  if (s < 3600) return `${Math.floor(s/60)}m ago`;
-  if (s < 86400) return `${Math.floor(s/3600)}h ago`;
-  return `${Math.floor(s/86400)}d ago`;
+  if (s < 60)    return `${s}s ago`;
+  if (s < 3600)  return `${Math.floor(s / 60)}m ago`;
+  if (s < 86400) return `${Math.floor(s / 3600)}h ago`;
+  return `${Math.floor(s / 86400)}d ago`;
 }
 
 const STATUS_STYLE: Record<string, string> = {
@@ -58,19 +58,17 @@ const STATUS_STYLE: Record<string, string> = {
 };
 
 export default function DashboardPage() {
+  const { connected, address, balance } = useWalletCtx();
+
   const [tab,           setTab]           = useState<DashTab>('consumer');
-  const [mounted,       setMounted]       = useState(false);
-  const [address,       setAddress]       = useState<string | null>(null);
-  const [balance,       setBalance]       = useState<string | null>(null);
   const [consumerTasks, setConsumerTasks] = useState<Task[]>([]);
   const [providerTasks, setProviderTasks] = useState<Task[]>([]);
   const [reputation,    setReputation]    = useState<ReputationEntry | null>(null);
   const [liveEvents,    setLiveEvents]    = useState<LiveEvent[]>([]);
-  const [loading,       setLoading]       = useState(true);
+  const [loading,       setLoading]       = useState(false);
   const [error,         setError]         = useState<string | null>(null);
   const [refreshing,    setRefreshing]    = useState(false);
 
-  /* ── helpers ── */
   async function fetchJSON<T>(url: string): Promise<T | null> {
     try {
       const r = await fetch(url);
@@ -79,31 +77,9 @@ export default function DashboardPage() {
     } catch { return null; }
   }
 
-  /* ── load wallet address from localStorage (set by wallet provider) ── */
-  const loadAddress = useCallback(() => {
-    if (typeof window === 'undefined') return;
-    const stored =
-      localStorage.getItem('agentbazaar_address') ||
-      localStorage.getItem('erdjs_loginToken')    ||
-      sessionStorage.getItem('address');
-    setAddress(stored ?? null);
-  }, []);
-
-  /* ── fetch EGLD balance from MultiversX API ── */
-  const fetchBalance = useCallback(async (addr: string) => {
-    const data = await fetchJSON<{ balance: string }>(
-      `${MVX_API}/accounts/${addr}`
-    );
-    if (data?.balance) {
-      const egld = (BigInt(data.balance) / BigInt(10 ** 18)).toString();
-      const rest = data.balance.slice(-18).padStart(18, '0').slice(0, 4);
-      setBalance(`${egld}.${rest}`);
-    }
-  }, []);
-
-  /* ── fetch tasks & reputation from NestJS backend ── */
   const fetchData = useCallback(async (addr: string) => {
     setRefreshing(true);
+    setError(null);
     try {
       const [cTasks, pTasks, rep, events] = await Promise.all([
         fetchJSON<Task[]>(`${BACKEND}/tasks?consumer=${addr}&limit=20`),
@@ -115,7 +91,7 @@ export default function DashboardPage() {
       if (pTasks) setProviderTasks(pTasks);
       if (rep)    setReputation(rep);
       if (events) setLiveEvents(events);
-    } catch (e) {
+    } catch {
       setError('Could not load data from backend.');
     } finally {
       setLoading(false);
@@ -123,58 +99,45 @@ export default function DashboardPage() {
     }
   }, []);
 
-  /* ── init ── */
   useEffect(() => {
-    setMounted(true);
-    loadAddress();
-  }, [loadAddress]);
-
-  useEffect(() => {
-    if (!address) { setLoading(false); return; }
-    fetchBalance(address);
+    if (!connected || !address) return;
+    setLoading(true);
     fetchData(address);
     const interval = setInterval(() => fetchData(address), 30_000);
     return () => clearInterval(interval);
-  }, [address, fetchBalance, fetchData]);
+  }, [connected, address, fetchData]);
 
-  /* ── derived stats ── */
+  /* derived stats */
   const cCompleted = consumerTasks.filter(t => t.status === 'completed').length;
-  const cSpent     = consumerTasks
-    .reduce((acc, t) => acc + parseFloat(t.budget ?? '0'), 0)
-    .toFixed(4);
-  const cLatencies = consumerTasks
-    .filter(t => t.latencyMs)
-    .map(t => t.latencyMs!);
+  const cSpent     = consumerTasks.reduce((acc, t) => acc + parseFloat(t.budget ?? '0'), 0).toFixed(4);
+  const cLatencies = consumerTasks.filter(t => t.latencyMs).map(t => t.latencyMs!);
   const cAvgLat    = cLatencies.length
-    ? Math.round(cLatencies.reduce((a,b) => a+b, 0) / cLatencies.length) + 'ms'
+    ? Math.round(cLatencies.reduce((a, b) => a + b, 0) / cLatencies.length) + 'ms'
     : '—';
 
   const pCompleted   = providerTasks.filter(t => t.status === 'completed').length;
   const pSuccessRate = providerTasks.length
     ? Math.round((pCompleted / providerTasks.length) * 100) + '%'
     : '—';
-  const pEarned = providerTasks
-    .reduce((acc, t) => acc + parseFloat(t.earned ?? '0'), 0)
-    .toFixed(4);
+  const pEarned = providerTasks.reduce((acc, t) => acc + parseFloat(t.earned ?? '0'), 0).toFixed(4);
 
   const consumerStats = [
-    { label:'Total Tasks',  value: String(consumerTasks.length), icon: Zap,         color:'text-brand-400' },
-    { label:'Completed',    value: String(cCompleted),           icon: CheckCircle, color:'text-emerald-400' },
-    { label:'Total Spent',  value: `${cSpent} EGLD`,             icon: BarChart3,   color:'text-white' },
-    { label:'Avg Latency',  value: cAvgLat,                      icon: Clock,       color:'text-blue-400' },
+    { label: 'Total Tasks', value: String(consumerTasks.length), icon: Zap,         color: 'text-brand-400' },
+    { label: 'Completed',   value: String(cCompleted),           icon: CheckCircle, color: 'text-emerald-400' },
+    { label: 'Total Spent', value: `${cSpent} EGLD`,             icon: BarChart3,   color: 'text-white' },
+    { label: 'Avg Latency', value: cAvgLat,                      icon: Clock,       color: 'text-blue-400' },
   ];
 
   const providerStats = [
-    { label:'Tasks Served', value: String(providerTasks.length),      icon: Zap,        color:'text-brand-400' },
-    { label:'Success Rate', value: pSuccessRate,                       icon: TrendingUp, color:'text-emerald-400' },
-    { label:'Total Earned', value: `${pEarned} EGLD`,                  icon: BarChart3,  color:'text-white' },
-    { label:'Rep Score',    value: reputation ? `${reputation.compositeScore}/100` : '—', icon: Shield, color:'text-yellow-400' },
+    { label: 'Tasks Served', value: String(providerTasks.length),                                        icon: Zap,        color: 'text-brand-400' },
+    { label: 'Success Rate', value: pSuccessRate,                                                         icon: TrendingUp, color: 'text-emerald-400' },
+    { label: 'Total Earned', value: `${pEarned} EGLD`,                                                   icon: BarChart3,  color: 'text-white' },
+    { label: 'Rep Score',    value: reputation ? `${reputation.compositeScore}/100` : '—',               icon: Shield,     color: 'text-yellow-400' },
   ];
 
   const stats = tab === 'consumer' ? consumerStats : providerStats;
   const tasks = tab === 'consumer' ? consumerTasks : providerTasks;
 
-  /* ── render ── */
   return (
     <div className="min-h-screen px-4 py-10">
       <div className="max-w-5xl mx-auto space-y-6">
@@ -183,40 +146,35 @@ export default function DashboardPage() {
         <div className="flex flex-col sm:flex-row sm:items-start justify-between gap-4">
           <div>
             <h1 className="text-2xl font-bold text-white">Dashboard</h1>
-            {mounted && (
+            {connected && address ? (
               <div className="flex items-center gap-2 mt-1">
-                {address ? (
-                  <>
-                    <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
-                    <a
-                      href={`${EXPLORER}/accounts/${address}`}
-                      target="_blank"
-                      rel="noreferrer"
-                      className="text-xs text-gray-400 hover:text-white transition-colors font-mono flex items-center gap-1"
-                    >
-                      {address.slice(0,8)}…{address.slice(-6)}
-                      <ExternalLink size={10} />
-                    </a>
-                    {balance && (
-                      <span className="flex items-center gap-1 text-xs text-emerald-300 font-mono">
-                        <Wallet size={11} />
-                        {balance} EGLD
-                      </span>
-                    )}
-                  </>
-                ) : (
-                  <span className="text-xs text-yellow-400 flex items-center gap-1">
-                    <AlertCircle size={12} />
-                    Wallet not connected — connect from navbar
+                <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
+                <a
+                  href={`${EXPLORER}/accounts/${address}`}
+                  target="_blank" rel="noreferrer"
+                  className="text-xs text-gray-400 hover:text-white font-mono flex items-center gap-1 transition-colors"
+                >
+                  {address.slice(0, 8)}…{address.slice(-6)}
+                  <ExternalLink size={10} />
+                </a>
+                {balance && (
+                  <span className="flex items-center gap-1 text-xs text-emerald-300 font-mono">
+                    <Wallet size={11} />
+                    {balance} EGLD
                   </span>
                 )}
               </div>
+            ) : (
+              <span className="text-xs text-yellow-400 flex items-center gap-1 mt-1">
+                <AlertCircle size={12} />
+                Wallet not connected
+              </span>
             )}
           </div>
           <div className="flex gap-2 items-center">
             <button
               onClick={() => address && fetchData(address)}
-              disabled={refreshing || !address}
+              disabled={refreshing || !connected}
               className="p-1.5 rounded-lg border border-white/10 text-gray-400 hover:text-white hover:border-white/20 transition-colors disabled:opacity-30"
               title="Refresh"
             >
@@ -227,27 +185,23 @@ export default function DashboardPage() {
           </div>
         </div>
 
-        {/* Error */}
         {error && (
           <div className="flex items-center gap-2 px-4 py-3 rounded-xl bg-red-500/10 border border-red-500/20 text-red-400 text-sm">
             <AlertCircle size={14} /> {error}
           </div>
         )}
 
-        {/* No wallet */}
-        {!loading && !address && (
+        {!connected ? (
           <div className="glass rounded-xl p-10 text-center">
             <Wallet size={32} className="mx-auto text-gray-600 mb-3" />
             <p className="text-white font-semibold mb-1">No wallet connected</p>
-            <p className="text-sm text-gray-500">Connect your xPortal wallet to see your tasks and balance.</p>
+            <p className="text-sm text-gray-500">Click <strong>Connect Wallet</strong> in the navbar to continue.</p>
           </div>
-        )}
-
-        {address && (
+        ) : (
           <>
             {/* Tab toggle */}
             <div className="flex gap-1 p-1 rounded-xl bg-white/3 border border-white/5 w-fit">
-              {(['consumer','provider'] as DashTab[]).map(t => (
+              {(['consumer', 'provider'] as DashTab[]).map(t => (
                 <button key={t} onClick={() => setTab(t)}
                   className={`px-4 py-1.5 rounded-lg text-sm font-medium transition-colors ${
                     tab === t ? 'bg-brand-600 text-white' : 'text-gray-500 hover:text-gray-300'
@@ -278,12 +232,9 @@ export default function DashboardPage() {
                   <span className="ml-2 text-xs text-gray-500 font-normal">{tasks.length} records</span>
                 )}
               </h2>
-
               {loading ? (
                 <div className="space-y-3">
-                  {[1,2,3].map(i => (
-                    <div key={i} className="h-12 rounded-lg bg-white/5 animate-pulse" />
-                  ))}
+                  {[1, 2, 3].map(i => <div key={i} className="h-12 rounded-lg bg-white/5 animate-pulse" />)}
                 </div>
               ) : tasks.length === 0 ? (
                 <div className="py-10 text-center">
@@ -294,7 +245,7 @@ export default function DashboardPage() {
                 </div>
               ) : (
                 <div className="space-y-3">
-                  {tasks.map((t) => (
+                  {tasks.map(t => (
                     <div key={t.id} className="flex items-center justify-between py-3 border-b border-white/5 last:border-0 gap-4">
                       <div className="flex-1 min-w-0">
                         <div className="flex items-center gap-2 flex-wrap">
@@ -306,19 +257,14 @@ export default function DashboardPage() {
                         <div className="text-xs text-gray-500 mt-0.5">
                           {tab === 'consumer'
                             ? `${t.serviceName ?? t.serviceId ?? '—'} · ${t.latencyMs ? t.latencyMs + 'ms' : 'in progress'} · ${t.budget ?? '—'} EGLD`
-                            : `Consumer: ${t.consumer?.slice(0,8) ?? '?'}… · Earned: ${t.earned ?? '0'} EGLD`
+                            : `Consumer: ${t.consumer?.slice(0, 8) ?? '?'}… · Earned: ${t.earned ?? '0'} EGLD`
                           }
                         </div>
                       </div>
                       <div className="flex items-center gap-2 shrink-0">
                         {t.txHash && (
-                          <a
-                            href={`${EXPLORER}/transactions/${t.txHash}`}
-                            target="_blank"
-                            rel="noreferrer"
-                            className="text-gray-600 hover:text-brand-400 transition-colors"
-                            title="View on explorer"
-                          >
+                          <a href={`${EXPLORER}/transactions/${t.txHash}`} target="_blank" rel="noreferrer"
+                            className="text-gray-600 hover:text-brand-400 transition-colors" title="View on explorer">
                             <ExternalLink size={12} />
                           </a>
                         )}
@@ -346,15 +292,9 @@ export default function DashboardPage() {
                   {liveEvents.map((ev, i) => (
                     <div key={i} className="flex items-center justify-between py-2 border-b border-white/5 last:border-0">
                       <div className="flex items-center gap-2">
-                        <span className="text-[10px] px-2 py-0.5 rounded bg-brand-500/20 text-brand-400 border border-brand-500/30 font-mono">
-                          {ev.type}
-                        </span>
-                        <a
-                          href={`${EXPLORER}/transactions/${ev.hash}`}
-                          target="_blank"
-                          rel="noreferrer"
-                          className="text-xs font-mono text-gray-500 hover:text-brand-400 transition-colors"
-                        >
+                        <span className="text-[10px] px-2 py-0.5 rounded bg-brand-500/20 text-brand-400 border border-brand-500/30 font-mono">{ev.type}</span>
+                        <a href={`${EXPLORER}/transactions/${ev.hash}`} target="_blank" rel="noreferrer"
+                          className="text-xs font-mono text-gray-500 hover:text-brand-400 transition-colors">
                           {ev.hash}
                         </a>
                       </div>
