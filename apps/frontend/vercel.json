@@ -1,6 +1,6 @@
 {
   "buildCommand": "npm run build",
-  "installCommand": "npm install --force",
+  "installCommand": "npm install --legacy-peer-deps --no-workspaces",
   "framework": "nextjs",
   "outputDirectory": ".next"
 }
