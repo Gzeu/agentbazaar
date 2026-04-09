@@ -6,7 +6,7 @@ multiversx_sc_wasm_adapter::panic_handler!();
 multiversx_sc::imports!();
 multiversx_sc::derive_imports!();
 
-use multiversx_sc::types::TimestampSeconds;
+use multiversx_sc::types::{TimestampSeconds, DurationSeconds};
 
 #[derive(TopEncode, TopDecode, NestedEncode, NestedDecode, TypeAbi, Clone)]
 pub struct Proposal<M: ManagedTypeApi> {
@@ -56,11 +56,16 @@ pub trait AgentBazaarDAO {
     fn create_proposal(&self, description: ManagedBuffer) -> u64 {
         let id = self.proposal_count().get() + 1;
         let now = self.now();
-        let vote_dur = TimestampSeconds(self.vote_duration().get());
-        let exec_del = TimestampSeconds(self.exec_delay().get());
+        // Convert stored u64 durations to DurationSeconds for arithmetic
+        let vote_dur = DurationSeconds::from_secs(self.vote_duration().get());
+        let exec_del = DurationSeconds::from_secs(self.exec_delay().get());
         let proposal = Proposal {
-            id, proposer: self.blockchain().get_caller(), description,
-            yes_votes: BigUint::zero(), no_votes: BigUint::zero(), executed: false,
+            id,
+            proposer: self.blockchain().get_caller(),
+            description,
+            yes_votes: BigUint::zero(),
+            no_votes: BigUint::zero(),
+            executed: false,
             created_at: now,
             execute_after: now + vote_dur + exec_del,
         };
@@ -78,7 +83,7 @@ pub trait AgentBazaarDAO {
         require!(voting_power > BigUint::zero(), "No voting power");
         let mut proposal = self.proposals(proposal_id).get();
         let now = self.now();
-        let vote_dur = TimestampSeconds(self.vote_duration().get());
+        let vote_dur = DurationSeconds::from_secs(self.vote_duration().get());
         require!(now < proposal.created_at + vote_dur, "Voting closed");
         if in_favor { proposal.yes_votes += voting_power; } else { proposal.no_votes += voting_power; }
         self.proposals(proposal_id).set(proposal);

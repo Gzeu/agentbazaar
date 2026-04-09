@@ -6,7 +6,7 @@ multiversx_sc_wasm_adapter::panic_handler!();
 multiversx_sc::imports!();
 multiversx_sc::derive_imports!();
 
-use multiversx_sc::types::TimestampSeconds;
+use multiversx_sc::types::{TimestampSeconds, DurationSeconds};
 
 #[derive(TopEncode, TopDecode, NestedEncode, NestedDecode, PartialEq, Clone)]
 #[type_abi]
@@ -26,8 +26,9 @@ pub struct TaskRecord<M: ManagedTypeApi> {
     pub completed_at: TimestampSeconds,
 }
 
-pub const DISPUTE_WINDOW: TimestampSeconds = TimestampSeconds(3600);
-pub const TASK_TIMEOUT: TimestampSeconds = TimestampSeconds(300);
+// Use DurationSeconds for intervals (TimestampSeconds constructor is pub(crate))
+pub const DISPUTE_WINDOW: DurationSeconds = DurationSeconds::from_secs(3600);
+pub const TASK_TIMEOUT: DurationSeconds = DurationSeconds::from_secs(300);
 
 #[multiversx_sc::contract]
 pub trait EscrowContract {
@@ -76,7 +77,7 @@ pub trait EscrowContract {
             buyer: caller.clone(), provider: provider.clone(), service_id: service_id.clone(),
             amount: payment.clone(), status: TaskStatus::Pending,
             payload_hash: payload_hash.clone(), proof_hash: ManagedBuffer::new(),
-            created_at: self.now(), completed_at: TimestampSeconds(0),
+            created_at: self.now(), completed_at: TimestampSeconds::zero(),
         };
         self.tasks().insert(task_id.clone(), record);
         self.emit_task_created(&task_id, &caller, &provider);
