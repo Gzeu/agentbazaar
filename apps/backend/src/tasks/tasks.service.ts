@@ -1,22 +1,22 @@
 import { Injectable, NotFoundException, Logger, OnModuleInit } from '@nestjs/common';
 import { v4 as uuidv4 } from 'uuid';
 
-export type TaskStatus = 'pending' | 'running' | 'completed' | 'failed' | 'disputed';
+export type TaskStatus = 'pending' | 'running' | 'completed' | 'failed' | 'disputed' | 'refunded';
 
 export interface TaskRecord {
-  id: string;
-  serviceId: string;
-  consumerId: string;
+  id:              string;
+  serviceId:       string;
+  consumerId:      string;
   providerAddress: string;
-  status: TaskStatus;
-  maxBudget: string;
-  payloadHash?: string;
-  proofHash?: string;
-  escrowTxHash?: string;
-  latencyMs?: number;
-  createdAt: string;
-  updatedAt: string;
-  deadline: string;
+  status:          TaskStatus;
+  maxBudget:       string;
+  payloadHash?:    string;
+  proofHash?:      string;
+  escrowTxHash?:   string;
+  latencyMs?:      number;
+  createdAt:       string;
+  updatedAt:       string;
+  deadline:        string;
 }
 
 @Injectable()
@@ -62,8 +62,7 @@ export class TasksService implements OnModuleInit {
       (a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime(),
     );
     if (opts.status) list = list.filter(t => t.status === opts.status);
-    const tasks = list.slice(0, opts.limit);
-    return { tasks, total: list.length };
+    return { tasks: list.slice(0, opts.limit), total: list.length };
   }
 
   findOne(id: string): TaskRecord {
@@ -82,7 +81,7 @@ export class TasksService implements OnModuleInit {
       providerAddress: String(body.providerAddress ?? ''),
       status:          'pending',
       maxBudget:       String(body.maxBudget ?? '0'),
-      payloadHash:     body.payloadHash as string | undefined,
+      payloadHash:     body.payloadHash  as string | undefined,
       escrowTxHash:    body.escrowTxHash as string | undefined,
       createdAt:       now,
       updatedAt:       now,
@@ -102,6 +101,16 @@ export class TasksService implements OnModuleInit {
     task.updatedAt = new Date().toISOString();
     this.store.set(id, task);
     this.logger.log(`Task completed: ${id} — ${latencyMs}ms`);
+    return task;
+  }
+
+  /** Mark a task as refunded (deadline exceeded) */
+  timeout(id: string): TaskRecord {
+    const task     = this.findOne(id);
+    task.status    = 'refunded';
+    task.updatedAt = new Date().toISOString();
+    this.store.set(id, task);
+    this.logger.warn(`Task timed out → refunded: ${id}`);
     return task;
   }
 
