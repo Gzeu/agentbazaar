@@ -1,18 +1,19 @@
-import clsx from 'clsx';
-import type { TaskStatus } from '@/lib/types';
+'use client';
+import type { TaskStatus } from '@/hooks/useTasks';
 
-const STATUS_STYLES: Record<TaskStatus, string> = {
-  pending: 'bg-yellow-900/30 text-yellow-300 border-yellow-700/30',
-  running: 'bg-blue-900/30 text-blue-300 border-blue-700/30 animate-pulse',
-  completed: 'bg-green-900/30 text-green-300 border-green-700/30',
-  failed: 'bg-red-900/30 text-red-300 border-red-700/30',
-  disputed: 'bg-orange-900/30 text-orange-300 border-orange-700/30',
+const MAP: Record<TaskStatus, { label: string; cls: string }> = {
+  pending:   { label: 'Pending',   cls: 'bg-gray-500/15   text-gray-400   border-gray-500/20' },
+  running:   { label: 'Running',   cls: 'bg-brand-500/15  text-brand-300  border-brand-500/20 animate-pulse' },
+  completed: { label: 'Completed', cls: 'bg-emerald-500/15 text-emerald-400 border-emerald-500/20' },
+  failed:    { label: 'Failed',    cls: 'bg-red-500/15    text-red-400    border-red-500/20' },
+  disputed:  { label: 'Disputed',  cls: 'bg-yellow-500/15 text-yellow-400  border-yellow-500/20' },
 };
 
 export function TaskStatusBadge({ status }: { status: TaskStatus }) {
+  const { label, cls } = MAP[status] ?? MAP.pending;
   return (
-    <span className={clsx('text-xs px-2 py-0.5 rounded border font-mono', STATUS_STYLES[status])}>
-      {status}
+    <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium border ${cls}`}>
+      {label}
     </span>
   );
 }
