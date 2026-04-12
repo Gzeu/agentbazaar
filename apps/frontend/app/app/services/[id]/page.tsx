@@ -2,9 +2,19 @@
 
 import { useParams, useRouter } from 'next/navigation';
 import { useState } from 'react';
-import { MOCK_SERVICES } from '@/lib/mock-data';
+import { useServices } from '@/hooks/useServices';
 import { useWallet } from '@/hooks/useWallet';
 import type { Service } from '@/lib/types';
+
+const CATEGORY_COLORS: Record<string, string> = {
+  'data': 'text-teal-400 bg-teal-500/10 border-teal-500/20',
+  'compute': 'text-indigo-400 bg-indigo-500/10 border-indigo-500/20',
+  'compliance': 'text-red-400 bg-red-500/10 border-red-500/20',
+  'orchestration': 'text-amber-400 bg-amber-500/10 border-amber-500/20',
+  'enrichment': 'text-emerald-400 bg-emerald-500/10 border-emerald-500/20',
+  'wallet-actions': 'text-purple-400 bg-purple-500/10 border-purple-500/20',
+  'notifications': 'text-blue-400 bg-blue-500/10 border-blue-500/20',
+};
 
 function ReputationRing({ score }: { score: number }) {
   const pct = score / 100;
@@ -187,7 +197,28 @@ export default function ServiceDetailPage() {
   const { id } = useParams<{ id: string }>();
   const router = useRouter();
   const [showBuy, setShowBuy] = useState(false);
-  const service = MOCK_SERVICES.find(s => s.id === id);
+  const { services, loading, error } = useServices();
+  const service = services.find(s => s.id === id);
+
+  if (loading) {
+    return (
+      <div className="flex flex-col items-center justify-center min-h-[60vh] gap-4">
+        <div className="w-10 h-10 border-4 border-brand-500 border-t-transparent rounded-full animate-spin" />
+        <p className="text-sm text-dark-muted">Se încarcă serviciul...</p>
+      </div>
+    );
+  }
+
+  if (error) {
+    return (
+      <div className="flex flex-col items-center justify-center min-h-[60vh] gap-4">
+        <span className="text-5xl">⚠️</span>
+        <h2 className="text-lg font-bold text-dark-text">Eroare la încărcare</h2>
+        <p className="text-sm text-dark-muted">{error}</p>
+        <button className="btn-secondary" onClick={() => router.push('/')}>← Marketplace</button>
+      </div>
+    );
+  }
 
   if (!service) {
     return (
@@ -198,16 +229,6 @@ export default function ServiceDetailPage() {
       </div>
     );
   }
-
-  const CATEGORY_COLORS: Record<string, string> = {
-    'data-fetching': 'text-teal-400 bg-teal-500/10 border-teal-500/20',
-    'compute-offload': 'text-indigo-400 bg-indigo-500/10 border-indigo-500/20',
-    'compliance': 'text-red-400 bg-red-500/10 border-red-500/20',
-    'orchestration': 'text-amber-400 bg-amber-500/10 border-amber-500/20',
-    'enrichment': 'text-emerald-400 bg-emerald-500/10 border-emerald-500/20',
-    'wallet-actions': 'text-purple-400 bg-purple-500/10 border-purple-500/20',
-    'notifications': 'text-blue-400 bg-blue-500/10 border-blue-500/20',
-  };
 
   return (
     <>
@@ -298,7 +319,9 @@ export default function ServiceDetailPage() {
             </div>
             <div className="text-right">
               <p className="text-xs text-dark-muted mb-1">Înregistrat</p>
-              <p className="text-sm font-mono text-dark-text">{new Date(service.registeredAt).toLocaleDateString('ro-RO')}</p>
+              <p className="text-sm font-mono text-dark-text">
+                {service.createdAt ? new Date(service.createdAt).toLocaleDateString('ro-RO') : '—'}
+              </p>
             </div>
           </div>
         </div>

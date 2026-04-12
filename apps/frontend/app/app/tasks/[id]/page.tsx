@@ -2,31 +2,45 @@
 
 import { useParams, useRouter } from 'next/navigation';
 import { useState, useEffect } from 'react';
-import { MOCK_TASKS, MOCK_SERVICES } from '@/lib/mock-data';
+import { useTasks } from '@/hooks/useTasks';
+import { useServices } from '@/hooks/useServices';
 
 const STATUS_STEPS = ['pending', 'quoted', 'paid', 'running', 'completed'] as const;
-type TaskStatus = 'pending' | 'quoted' | 'paid' | 'running' | 'completed' | 'failed';
+
+type TaskStatus =
+  | 'pending'
+  | 'quoted'
+  | 'paid'
+  | 'running'
+  | 'completed'
+  | 'failed'
+  | 'disputed'
+  | 'refunded';
 
 const STATUS_COLORS: Record<TaskStatus, string> = {
-  pending: 'text-amber-400 bg-amber-500/10 border-amber-500/20',
-  quoted: 'text-blue-400 bg-blue-500/10 border-blue-500/20',
-  paid: 'text-brand-400 bg-brand-500/10 border-brand-500/20',
-  running: 'text-purple-400 bg-purple-500/10 border-purple-500/20',
+  pending:   'text-amber-400 bg-amber-500/10 border-amber-500/20',
+  quoted:    'text-blue-400 bg-blue-500/10 border-blue-500/20',
+  paid:      'text-brand-400 bg-brand-500/10 border-brand-500/20',
+  running:   'text-purple-400 bg-purple-500/10 border-purple-500/20',
   completed: 'text-emerald-400 bg-emerald-500/10 border-emerald-500/20',
-  failed: 'text-red-400 bg-red-500/10 border-red-500/20',
+  failed:    'text-red-400 bg-red-500/10 border-red-500/20',
+  disputed:  'text-orange-400 bg-orange-500/10 border-orange-500/20',
+  refunded:  'text-sky-400 bg-sky-500/10 border-sky-500/20',
 };
 
 const PROTOCOL_STEPS = [
-  { key: 'ucp', label: 'UCP Discovery', desc: 'Service discovered via Universal Commerce Protocol' },
-  { key: 'quote', label: 'ACP Quote', desc: 'Price negotiated and quote confirmed' },
-  { key: 'mandate', label: 'AP2 Mandate', desc: 'Consumer agent mandate verified on-chain' },
-  { key: 'payment', label: 'x402 Payment', desc: 'Settlement executed, escrow locked' },
-  { key: 'execution', label: 'MCP Execution', desc: 'Service handler invoked via MCP protocol' },
-  { key: 'proof', label: 'Proof & Result', desc: 'Execution proof anchored on Supernova' },
+  { key: 'ucp',       label: 'UCP Discovery',   desc: 'Service discovered via Universal Commerce Protocol' },
+  { key: 'quote',     label: 'ACP Quote',        desc: 'Price negotiated and quote confirmed' },
+  { key: 'mandate',   label: 'AP2 Mandate',      desc: 'Consumer agent mandate verified on-chain' },
+  { key: 'payment',   label: 'x402 Payment',     desc: 'Settlement executed, escrow locked' },
+  { key: 'execution', label: 'MCP Execution',    desc: 'Service handler invoked via MCP protocol' },
+  { key: 'proof',     label: 'Proof & Result',   desc: 'Execution proof anchored on Supernova' },
 ];
 
 function ProtocolTimeline({ status }: { status: TaskStatus }) {
-  const completedUpTo = status === 'failed' ? 3
+  const completedUpTo =
+    status === 'failed' || status === 'disputed' ? 3
+    : status === 'refunded' ? 0
     : status === 'pending' ? 0
     : status === 'quoted' ? 1
     : status === 'paid' ? 3
@@ -36,19 +50,19 @@ function ProtocolTimeline({ status }: { status: TaskStatus }) {
   return (
     <div className="space-y-2">
       {PROTOCOL_STEPS.map((step, i) => {
-        const done = i < completedUpTo;
+        const done   = i < completedUpTo;
         const active = i === completedUpTo;
-        const failed = status === 'failed' && i === completedUpTo;
+        const failed = (status === 'failed' || status === 'disputed') && i === completedUpTo;
         return (
           <div key={step.key} className={`flex items-start gap-3 p-3 rounded-lg border transition-all ${
-            done ? 'bg-emerald-500/5 border-emerald-500/15'
+            done   ? 'bg-emerald-500/5 border-emerald-500/15'
             : active ? 'bg-brand-500/5 border-brand-500/20'
             : 'bg-dark-surface2 border-dark-border opacity-50'
           }`}>
             <div className={`w-7 h-7 rounded-full flex items-center justify-center text-xs font-bold flex-shrink-0 border ${
-              done ? 'bg-emerald-500/20 border-emerald-500/30 text-emerald-400'
+              done        ? 'bg-emerald-500/20 border-emerald-500/30 text-emerald-400'
               : active && !failed ? 'bg-brand-500/20 border-brand-500/30 text-brand-400'
-              : failed ? 'bg-red-500/20 border-red-500/30 text-red-400'
+              : failed    ? 'bg-red-500/20 border-red-500/30 text-red-400'
               : 'bg-dark-border border-dark-border text-dark-muted'
             }`}>
               {done ? '✓' : failed ? '✗' : active ? <span className="animate-pulse">●</span> : i + 1}
@@ -58,7 +72,7 @@ function ProtocolTimeline({ status }: { status: TaskStatus }) {
                 <p className={`text-sm font-semibold ${
                   done ? 'text-emerald-400' : active ? 'text-brand-400' : 'text-dark-muted'
                 }`}>{step.label}</p>
-                {done && <span className="text-xs text-dark-muted font-mono">✓ ok</span>}
+                {done   && <span className="text-xs text-dark-muted font-mono">✓ ok</span>}
                 {active && !failed && <span className="text-xs text-brand-400 font-mono animate-pulse">in progress...</span>}
               </div>
               <p className="text-xs text-dark-muted mt-0.5">{step.desc}</p>
@@ -71,10 +85,12 @@ function ProtocolTimeline({ status }: { status: TaskStatus }) {
 }
 
 export default function TaskDetailPage() {
-  const { id } = useParams<{ id: string }>();
-  const router = useRouter();
-  const task = MOCK_TASKS.find(t => t.id === id);
-  const service = task ? MOCK_SERVICES.find(s => s.id === task.serviceId) : null;
+  const { id }   = useParams<{ id: string }>();
+  const router   = useRouter();
+  const { tasks, loading: tasksLoading, error: tasksError } = useTasks();
+  const { services } = useServices();
+  const task     = tasks.find(t => t.id === id);
+  const service  = task ? services.find(s => s.id === task.serviceId) : null;
   const [elapsed, setElapsed] = useState(0);
 
   useEffect(() => {
@@ -82,6 +98,26 @@ export default function TaskDetailPage() {
     const interval = setInterval(() => setElapsed(e => e + 100), 100);
     return () => clearInterval(interval);
   }, [task]);
+
+  if (tasksLoading) {
+    return (
+      <div className="flex flex-col items-center justify-center min-h-[60vh] gap-4">
+        <div className="w-10 h-10 border-4 border-brand-500 border-t-transparent rounded-full animate-spin" />
+        <p className="text-sm text-dark-muted">Se încarcă task-ul...</p>
+      </div>
+    );
+  }
+
+  if (tasksError) {
+    return (
+      <div className="flex flex-col items-center justify-center min-h-[60vh] gap-4">
+        <span className="text-5xl">⚠️</span>
+        <h2 className="text-lg font-bold text-dark-text">Eroare la încărcare</h2>
+        <p className="text-sm text-dark-muted">{tasksError}</p>
+        <button className="btn-secondary" onClick={() => router.push('/tasks')}>← Tasks</button>
+      </div>
+    );
+  }
 
   if (!task) {
     return (
@@ -104,7 +140,9 @@ export default function TaskDetailPage() {
         <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
           <div>
             <div className="flex items-center gap-2 mb-2">
-              <span className={`badge border ${STATUS_COLORS[status]}`}>{status}</span>
+              <span className={`badge border ${STATUS_COLORS[status] ?? 'text-dark-muted bg-dark-surface2 border-dark-border'}`}>
+                {status}
+              </span>
               <span className="text-xs font-mono text-dark-muted">{task.id}</span>
             </div>
             <h1 className="text-xl font-bold text-dark-text">{service?.name ?? 'Unknown Service'}</h1>
@@ -134,7 +172,9 @@ export default function TaskDetailPage() {
         </div>
         <div className="bg-dark-surface2 rounded-xl p-4">
           <p className="text-xs text-dark-muted uppercase tracking-wider mb-2">Deadline</p>
-          <p className="text-base font-bold font-mono text-dark-text">{new Date(task.deadline).toLocaleTimeString('ro-RO')}</p>
+          <p className="text-base font-bold font-mono text-dark-text">
+            {task.deadline ? new Date(task.deadline).toLocaleTimeString('ro-RO') : '—'}
+          </p>
         </div>
         <div className="bg-dark-surface2 rounded-xl p-4">
           <p className="text-xs text-dark-muted uppercase tracking-wider mb-2">Proof Hash</p>
@@ -149,16 +189,18 @@ export default function TaskDetailPage() {
       </div>
 
       {/* Payload */}
-      <div className="card mb-6">
-        <h3 className="section-heading mb-3">Payload</h3>
-        <pre className="text-xs font-mono text-brand-300 bg-dark-surface2 rounded-lg p-4 overflow-x-auto">
-          {JSON.stringify(task.payload, null, 2)}
-        </pre>
-      </div>
+      {task.payload && (
+        <div className="card mb-6">
+          <h3 className="section-heading mb-3">Payload</h3>
+          <pre className="text-xs font-mono text-brand-300 bg-dark-surface2 rounded-lg p-4 overflow-x-auto">
+            {JSON.stringify(task.payload, null, 2)}
+          </pre>
+        </div>
+      )}
 
       {/* Result */}
       {task.result && (
-        <div className="card border-emerald-500/20">
+        <div className="card border-emerald-500/20 mb-6">
           <h3 className="section-heading mb-3 text-emerald-400">✓ Rezultat</h3>
           <pre className="text-xs font-mono text-emerald-300 bg-emerald-500/5 rounded-lg p-4 overflow-x-auto">
             {JSON.stringify(task.result, null, 2)}
@@ -171,6 +213,21 @@ export default function TaskDetailPage() {
           <h3 className="section-heading mb-2 text-red-400">✗ Task Eșuat</h3>
           <p className="text-sm text-dark-muted">Escrow-ul va fi returnat în 10 minute. Poți retrimite task-ul sau alege un alt provider.</p>
           <button className="btn-primary mt-4" onClick={() => router.push(`/services/${task.serviceId}`)}>↺ Reîncearcă</button>
+        </div>
+      )}
+
+      {status === 'disputed' && (
+        <div className="card border-orange-500/20">
+          <h3 className="section-heading mb-2 text-orange-400">⚠ Task Disputat</h3>
+          <p className="text-sm text-dark-muted">Task-ul este în curs de dispute resolution. Escrow-ul este blocat până la rezolvare.</p>
+        </div>
+      )}
+
+      {status === 'refunded' && (
+        <div className="card border-sky-500/20">
+          <h3 className="section-heading mb-2 text-sky-400">↩ Refund Procesat</h3>
+          <p className="text-sm text-dark-muted">Suma a fost returnată în wallet-ul tău. Poți plasa un nou task oricând.</p>
+          <button className="btn-secondary mt-4" onClick={() => router.push('/')}>← Marketplace</button>
         </div>
       )}
     </div>
