@@ -1,75 +1,64 @@
 'use client';
 
-import { useState, useEffect, useRef, useCallback } from 'react';
+import { useState, useEffect, useMemo, useCallback } from 'react';
 import { tasksApi } from '@/lib/api';
-import type { Task, TaskStatus } from '@/lib/types';
+import { MOCK_TASKS } from '@/lib/mock-data';
+import type { Task, TaskFilter } from '@/lib/types';
 
-export type TaskFilter = 'all' | TaskStatus;
-
-export function useTasks(intervalMs = 6_000) {
-  const [tasks, setTasks] = useState<Task[]>([]);
-  const [filter, setFilter] = useState<TaskFilter>('all');
+export function useTasks() {
+  const [allTasks, setAllTasks] = useState<Task[]>(MOCK_TASKS as Task[]);
+  const [loading, setLoading]   = useState(true);
+  const [error, setError]       = useState<string | null>(null);
+  const [filter, setFilter]     = useState<TaskFilter>('all');
   const [serviceId, setServiceId] = useState<string | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [submitting, setSubmitting] = useState(false);
-  const timer = useRef<ReturnType<typeof setInterval> | null>(null);
 
-  const fetchAll = useCallback(async () => {
+  const fetchTasks = useCallback(async () => {
+    setLoading(true);
+    setError(null);
     try {
-      // Try real API first; fall back to empty on error
-      const result = await tasksApi.list?.() ?? [];
-      setTasks(result?.tasks ?? result ?? []);
+      const { tasks } = await tasksApi.list({ limit: 500 });
+      if (tasks && tasks.length > 0) {
+        setAllTasks(tasks as Task[]);
+      }
     } catch {
-      /* keep previous data */
+      setError('Backend offline — showing demo data');
     } finally {
       setLoading(false);
     }
   }, []);
 
-  useEffect(() => {
-    fetchAll();
-    timer.current = setInterval(fetchAll, intervalMs);
-    return () => { if (timer.current) clearInterval(timer.current); };
-  }, [fetchAll, intervalMs]);
+  useEffect(() => { fetchTasks(); }, [fetchTasks]);
 
-  const filtered = tasks.filter(t => {
-    if (filter !== 'all' && t.status !== filter) return false;
-    if (serviceId && t.serviceId !== serviceId) return false;
-    return true;
-  }).sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+  const tasks = useMemo(() => {
+    let result = [...allTasks];
+    if (filter !== 'all') result = result.filter(t => t.status === filter);
+    if (serviceId) result = result.filter(t => t.serviceId === serviceId);
+    return result.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+  }, [allTasks, filter, serviceId]);
 
-  const stats = {
-    total: tasks.length,
-    pending: tasks.filter(t => t.status === 'pending').length,
-    running: tasks.filter(t => t.status === 'running').length,
-    completed: tasks.filter(t => t.status === 'completed').length,
-    failed: tasks.filter(t => t.status === 'failed').length,
-    disputed: tasks.filter(t => t.status === 'disputed').length,
-    avgLatency: Math.round(
-      tasks.filter(t => t.latencyMs).reduce((s, t) => s + (t.latencyMs ?? 0), 0) /
-      Math.max(1, tasks.filter(t => t.latencyMs).length)
-    ),
-    successRate: tasks.length
-      ? Math.round((tasks.filter(t => t.status === 'completed').length / tasks.length) * 100)
-      : 0,
+  const stats = useMemo(() => {
+    const withLatency = allTasks.filter(t => t.latencyMs != null);
+    return {
+      total:     allTasks.length,
+      pending:   allTasks.filter(t => t.status === 'pending').length,
+      running:   allTasks.filter(t => t.status === 'running').length,
+      completed: allTasks.filter(t => t.status === 'completed').length,
+      failed:    allTasks.filter(t => t.status === 'failed').length,
+      disputed:  allTasks.filter(t => t.status === 'disputed').length,
+      refunded:  allTasks.filter(t => t.status === 'refunded').length,
+      avgLatency: withLatency.length
+        ? Math.round(withLatency.reduce((s, t) => s + (t.latencyMs ?? 0), 0) / withLatency.length)
+        : 0,
+    };
+  }, [allTasks]);
+
+  return {
+    tasks,
+    stats,
+    loading,
+    error,
+    refresh:      fetchTasks,
+    filter,       setFilter,
+    serviceId,    setServiceId,
   };
-
-  const submitTask = useCallback(async (payload: {
-    serviceId: string;
-    consumerAddress: string;
-    providerAddress: string;
-    maxBudget: string;
-    inputData?: Record<string, unknown>;
-  }) => {
-    setSubmitting(true);
-    try {
-      const result = await tasksApi.submit(payload);
-      await fetchAll();
-      return result;
-    } finally {
-      setSubmitting(false);
-    }
-  }, [fetchAll]);
-
-  return { tasks: filtered, filter, setFilter, serviceId, setServiceId, stats, loading, submitting, submitTask, refetch: fetchAll };
 }
