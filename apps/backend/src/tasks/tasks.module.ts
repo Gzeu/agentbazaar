@@ -1,14 +1,12 @@
-import { Module } from '@nestjs/common';
-import { TasksService } from './tasks.service';
+import { Module, forwardRef } from '@nestjs/common';
 import { TasksController } from './tasks.controller';
-import { AgentExecutorService } from './agent-executor.service';
-import { MultiversxModule } from '../multiversx/multiversx.module';
-import { ServicesModule } from '../services/services.module';
+import { TasksService } from './tasks.service';
+import { ReputationModule } from '../reputation/reputation.module';
 
 @Module({
-  imports:     [MultiversxModule, ServicesModule],
-  providers:   [TasksService, AgentExecutorService],
+  imports: [forwardRef(() => ReputationModule)],
   controllers: [TasksController],
-  exports:     [TasksService, AgentExecutorService],
+  providers: [TasksService],
+  exports: [TasksService],
 })
 export class TasksModule {}
