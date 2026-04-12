@@ -20,11 +20,24 @@ export interface TaskRecord {
   payloadHash?: string;
   proofHash?: string;
   escrowTxHash?: string;
+  disputeReason?: string;
   latencyMs?: number;
-  onChainVerified: boolean;   // NEW — true when escrow proof confirmed on-chain
+  onChainVerified: boolean;
   createdAt: string;
   updatedAt: string;
   deadline: string;
+}
+
+export interface TaskMetrics {
+  total: number;
+  completed: number;
+  failed: number;
+  pending: number;
+  running: number;
+  disputed: number;
+  successRate: number;
+  avgLatencyMs: number;
+  onChainVerifiedRate: number;
 }
 
 @Injectable()
@@ -38,50 +51,37 @@ export class TasksService implements OnModuleInit {
   ) {}
 
   onModuleInit() {
-    // Seed demo tasks — only used when no real contract is configured
     const now = Date.now();
     const demos: Partial<TaskRecord>[] = [
       {
-        id: 'task-demo-001',
-        serviceId: 'svc-demo',
-        consumerId: 'erd1consumer',
-        providerAddress: 'erd1provider',
-        status: 'completed',
-        maxBudget: '1000000000000000',
-        latencyMs: 187,
-        onChainVerified: false,
+        id: 'task-demo-001', serviceId: 'svc-demo',
+        consumerId: 'erd1consumer', providerAddress: 'erd1provider',
+        status: 'completed', maxBudget: '1000000000000000',
+        latencyMs: 187, onChainVerified: false,
         createdAt: new Date(now - 3600000).toISOString(),
         updatedAt: new Date(now - 3599000).toISOString(),
         deadline: new Date(now + 300000).toISOString(),
       },
       {
-        id: 'task-demo-002',
-        serviceId: 'svc-demo',
-        consumerId: 'erd1consumer',
-        providerAddress: 'erd1provider',
-        status: 'running',
-        maxBudget: '5000000000000000',
+        id: 'task-demo-002', serviceId: 'svc-demo',
+        consumerId: 'erd1consumer', providerAddress: 'erd1provider',
+        status: 'running', maxBudget: '5000000000000000',
         onChainVerified: false,
         createdAt: new Date(now - 120000).toISOString(),
         updatedAt: new Date(now - 60000).toISOString(),
         deadline: new Date(now + 180000).toISOString(),
       },
       {
-        id: 'task-demo-003',
-        serviceId: 'svc-demo',
-        consumerId: 'erd1consumer',
-        providerAddress: 'erd1provider',
-        status: 'pending',
-        maxBudget: '500000000000000',
+        id: 'task-demo-003', serviceId: 'svc-demo',
+        consumerId: 'erd1consumer', providerAddress: 'erd1provider',
+        status: 'pending', maxBudget: '500000000000000',
         onChainVerified: false,
         createdAt: new Date(now - 30000).toISOString(),
         updatedAt: new Date(now - 30000).toISOString(),
         deadline: new Date(now + 270000).toISOString(),
       },
     ];
-    for (const d of demos) {
-      this.store.set(d.id!, d as TaskRecord);
-    }
+    for (const d of demos) this.store.set(d.id!, d as TaskRecord);
     this.logger.log(`Seeded ${this.store.size} demo tasks`);
   }
 
@@ -99,14 +99,32 @@ export class TasksService implements OnModuleInit {
     return t;
   }
 
-  /**
-   * Create a task and kick off REAL on-chain execution.
-   *
-   * Flow:
-   *  1. Persist task as 'pending'
-   *  2. If x402 escrow tx is provided → verify on-chain
-   *  3. Dispatch executeTaskReal() async (non-blocking)
-   */
+  getMetrics(): TaskMetrics {
+    const all = Array.from(this.store.values());
+    const completed  = all.filter(t => t.status === 'completed');
+    const failed     = all.filter(t => t.status === 'failed');
+    const pending    = all.filter(t => t.status === 'pending');
+    const running    = all.filter(t => t.status === 'running');
+    const disputed   = all.filter(t => t.status === 'disputed');
+    const withLatency = completed.filter(t => t.latencyMs !== undefined);
+    const verified   = all.filter(t => t.onChainVerified);
+
+    const total = all.length;
+    const successRate = total > 0 ? (completed.length / total) * 100 : 0;
+    const avgLatencyMs = withLatency.length > 0
+      ? withLatency.reduce((s, t) => s + (t.latencyMs ?? 0), 0) / withLatency.length
+      : 0;
+    const onChainVerifiedRate = total > 0 ? (verified.length / total) * 100 : 0;
+
+    return {
+      total, completed: completed.length, failed: failed.length,
+      pending: pending.length, running: running.length, disputed: disputed.length,
+      successRate: Math.round(successRate * 100) / 100,
+      avgLatencyMs: Math.round(avgLatencyMs),
+      onChainVerifiedRate: Math.round(onChainVerifiedRate * 100) / 100,
+    };
+  }
+
   async create(body: Record<string, unknown>): Promise<TaskRecord> {
     const id = String(body.id ?? `task-${uuidv4().slice(0, 8)}`);
     const now = new Date().toISOString();
@@ -122,22 +140,18 @@ export class TasksService implements OnModuleInit {
       onChainVerified: false,
       createdAt:       now,
       updatedAt:       now,
-      deadline:        String(
-        body.deadline ?? new Date(Date.now() + 300_000).toISOString(),
-      ),
+      deadline:        String(body.deadline ?? new Date(Date.now() + 300_000).toISOString()),
     };
     this.store.set(id, record);
     this.logger.log(`Task created: ${id} — escrowTx: ${record.escrowTxHash ?? 'none'}`);
 
-    // Non-blocking — execute async
     this.executeTaskReal(record).catch(err =>
-      this.logger.error(`executeTaskReal ${id} unhandled: ${err.message}`),
+      this.logger.error(`executeTaskReal ${id} unhandled: ${(err as Error).message}`),
     );
 
     return record;
   }
 
-  // Called by EventPoller when on-chain TaskCompleted event arrives
   complete(id: string, proofHash: string, latencyMs: number): TaskRecord {
     const task = this.findOne(id);
     task.status          = 'completed';
@@ -150,151 +164,108 @@ export class TasksService implements OnModuleInit {
     return task;
   }
 
-  /**
-   * Real execution flow:
-   *  1. Verify x402 escrow payment on-chain (if provided)
-   *  2. Set status → 'running'
-   *  3. Call provider agent endpoint
-   *  4. Hash the result → proof
-   *  5. Submit completeTask() on-chain via SC MCP
-   *  6. Update reputation on-chain
-   */
+  dispute(id: string, reason: string): TaskRecord {
+    const task = this.findOne(id);
+    if (task.status !== 'completed' && task.status !== 'failed') {
+      task.status = 'disputed';
+      task.disputeReason = reason;
+      task.updatedAt = new Date().toISOString();
+      this.store.set(id, task);
+      this.logger.log(`Task disputed: ${id} — ${reason}`);
+    }
+    return task;
+  }
+
   private async executeTaskReal(task: TaskRecord): Promise<void> {
     const start = Date.now();
-
     try {
-      // ── Step 1: x402 escrow verification ─────────────────
+      // ─ Step 1: x402 escrow verification ─────────────────
       const requireEscrow = this.config.get('X402_REQUIRE_ESCROW') === 'true';
       if (requireEscrow && task.escrowTxHash) {
-        const valid = await this.contracts.verifyX402Payment(
-          task.escrowTxHash,
-          task.id,
-        );
+        const valid = await this.contracts.verifyX402Payment(task.escrowTxHash, task.id);
         if (!valid) {
           this.logger.warn(`Task ${task.id}: escrow verification failed`);
-          task.status = 'failed';
-          task.updatedAt = new Date().toISOString();
-          this.store.set(task.id, task);
+          this.setStatus(task, 'failed');
           return;
         }
         task.onChainVerified = true;
       }
 
-      // ── Step 2: Set running ───────────────────────────────
-      task.status = 'running';
-      task.updatedAt = new Date().toISOString();
-      this.store.set(task.id, task);
+      // ─ Step 2: running ────────────────────────────────
+      this.setStatus(task, 'running');
 
-      // ── Step 3: Query escrow state (verify funds locked) ─
+      // ─ Step 3: check escrow locked ──────────────────────
       if (this.contracts['mvx'].ESCROW_CONTRACT) {
         const escrowState = await this.contracts.getTaskEscrow(task.id);
-        this.logger.debug(`Escrow state for ${task.id}: ${JSON.stringify(escrowState)}`);
+        this.logger.debug(`Escrow state ${task.id}: ${JSON.stringify(escrowState)}`);
       }
 
-      // ── Step 4: Call provider agent endpoint ─────────────
+      // ─ Step 4: call provider ────────────────────────────
       const providerResult = await this.callProviderEndpoint(task);
 
-      // ── Step 5: Hash result → proof ───────────────────────
+      // ─ Step 5: hash proof ──────────────────────────────
       const proofHash = this.contracts.hashResult(providerResult);
       const latencyMs = Date.now() - start;
 
-      // ── Step 6: Submit completeTask on-chain ──────────────
+      // ─ Step 6: completeTask on-chain ───────────────────
       if (this.contracts['mvx'].ESCROW_CONTRACT) {
-        const callResult = await this.contracts.completeTask(
-          task.id,
-          proofHash,
-          latencyMs,
-        );
+        const callResult = await this.contracts.completeTask(task.id, proofHash, latencyMs);
         if (callResult.success) {
-          this.logger.log(
-            `Task ${task.id} completed on-chain: txHash=${callResult.txHash}`,
-          );
+          this.logger.log(`Task ${task.id} → on-chain complete txHash=${callResult.txHash}`);
         } else {
-          this.logger.warn(
-            `Task ${task.id} completeTask on-chain failed: ${callResult.error}`,
-          );
+          this.logger.warn(`Task ${task.id} on-chain complete failed: ${callResult.error}`);
         }
       }
 
-      // ── Step 7: Update reputation ─────────────────────────
+      // ─ Step 7: update reputation ────────────────────────
       if (this.contracts['mvx'].REPUTATION_CONTRACT && task.providerAddress) {
-        await this.contracts.updateReputation(
-          task.providerAddress,
-          true,
-          latencyMs,
-        );
+        await this.contracts.updateReputation(task.providerAddress, true, latencyMs);
       }
 
-      // ── Step 8: Mark complete locally ────────────────────
+      // ─ Step 8: finalize ────────────────────────────────
       task.status          = 'completed';
       task.proofHash       = proofHash;
       task.latencyMs       = latencyMs;
       task.updatedAt       = new Date().toISOString();
       this.store.set(task.id, task);
-      this.logger.log(`Task ${task.id} ✅ completed in ${latencyMs}ms`);
+      this.logger.log(`Task ${task.id} ✅ ${latencyMs}ms | proof=${proofHash.slice(0, 16)}…`);
     } catch (err) {
       const latencyMs = Date.now() - start;
-      this.logger.error(`Task ${task.id} ❌ failed: ${(err as Error).message}`);
-
-      // Try to update reputation with failure
+      this.logger.error(`Task ${task.id} ❌ ${(err as Error).message}`);
       if (this.contracts['mvx'].REPUTATION_CONTRACT && task.providerAddress) {
-        await this.contracts.updateReputation(
-          task.providerAddress,
-          false,
-          latencyMs,
-        ).catch(() => {}); // best-effort
+        await this.contracts.updateReputation(task.providerAddress, false, latencyMs).catch(() => {});
       }
-
-      task.status    = 'failed';
-      task.updatedAt = new Date().toISOString();
-      this.store.set(task.id, task);
+      this.setStatus(task, 'failed');
     }
   }
 
-  /**
-   * Call the provider agent's UCP/MCP endpoint.
-   * The provider endpoint is stored in the service registry.
-   * Sends x402 payment header with the escrow tx hash.
-   */
   private async callProviderEndpoint(task: TaskRecord): Promise<unknown> {
     const baseUrl = this.config.get('API_BASE_URL', 'http://localhost:3001');
-
-    // In production: fetch provider endpoint from on-chain registry
-    // For now: route to the configured endpoint or self
     const endpoint = `${baseUrl}/tasks/${task.id}/execute`;
-
     const headers: Record<string, string> = {
       'Content-Type': 'application/json',
       'X-AgentBazaar-TaskId': task.id,
     };
-
-    // x402 payment proof header
     if (task.escrowTxHash) {
       headers['X-Payment-TxHash'] = task.escrowTxHash;
       headers['X-Payment-Network'] = 'multiversx-devnet';
     }
-
     try {
       const res = await fetch(endpoint, {
         method: 'POST',
         headers,
-        body: JSON.stringify({
-          taskId: task.id,
-          serviceId: task.serviceId,
-          payloadHash: task.payloadHash,
-        }),
+        body: JSON.stringify({ taskId: task.id, serviceId: task.serviceId, payloadHash: task.payloadHash }),
         signal: AbortSignal.timeout(30_000),
       });
-
-      if (!res.ok) {
-        // Provider unavailable or returned error — treat as task output
-        return { status: res.status, message: await res.text() };
-      }
-
-      return res.json();
+      return res.ok ? res.json() : { status: res.status, message: await res.text() };
     } catch {
-      // Provider unreachable — return minimal result to still produce a proof
       return { taskId: task.id, executedAt: new Date().toISOString(), offline: true };
     }
+  }
+
+  private setStatus(task: TaskRecord, status: TaskRecord['status']) {
+    task.status = status;
+    task.updatedAt = new Date().toISOString();
+    this.store.set(task.id, task);
   }
 }
