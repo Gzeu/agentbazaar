@@ -1,7 +1,5 @@
-import { Injectable, NotFoundException, Logger, OnModuleInit, Inject, forwardRef } from '@nestjs/common';
+import { Injectable, NotFoundException, Logger, OnModuleInit } from '@nestjs/common';
 import { v4 as uuidv4 } from 'uuid';
-import { ReputationService } from '../reputation/reputation.service';
-import { EventsGateway } from '../events/events.gateway';
 
 export type TaskStatus = 'pending' | 'running' | 'completed' | 'failed' | 'disputed';
 
@@ -21,50 +19,51 @@ export interface TaskRecord {
   deadline: string;
 }
 
-export interface TaskMetrics {
-  total: number;
-  pending: number;
-  running: number;
-  completed: number;
-  failed: number;
-  disputed: number;
-  successRate: number;
-  avgLatencyMs: number;
-}
-
 @Injectable()
 export class TasksService implements OnModuleInit {
   private readonly logger = new Logger(TasksService.name);
   private store = new Map<string, TaskRecord>();
 
-  constructor(
-    @Inject(forwardRef(() => ReputationService))
-    private readonly reputation: ReputationService,
-    @Inject(forwardRef(() => EventsGateway))
-    private readonly gateway: EventsGateway,
-  ) {}
-
   onModuleInit() {
     const now = Date.now();
-    const provAddr = 'erd1qqqqqqqqqqqqqpgq5l62sgxdlhfyc7r27nsu2x0dkqln8vxtc0nsk8k0e6';
     const demos: Partial<TaskRecord>[] = [
-      { id: 'task-demo-001', serviceId: 'svc-demo', consumerId: 'erd1consumer001', providerAddress: provAddr, status: 'completed', maxBudget: '1000000000000000', latencyMs: 187, createdAt: new Date(now - 3_600_000).toISOString(), updatedAt: new Date(now - 3_599_000).toISOString(), deadline: new Date(now + 300_000).toISOString() },
-      { id: 'task-demo-002', serviceId: 'svc-demo', consumerId: 'erd1consumer001', providerAddress: provAddr, status: 'running',   maxBudget: '5000000000000000', createdAt: new Date(now - 120_000).toISOString(),  updatedAt: new Date(now - 60_000).toISOString(),  deadline: new Date(now + 180_000).toISOString() },
-      { id: 'task-demo-003', serviceId: 'svc-demo', consumerId: 'erd1consumer002', providerAddress: provAddr, status: 'pending',   maxBudget: '500000000000000',  createdAt: new Date(now - 30_000).toISOString(),   updatedAt: new Date(now - 30_000).toISOString(),  deadline: new Date(now + 270_000).toISOString() },
-      { id: 'task-demo-004', serviceId: 'svc-wallet', consumerId: 'erd1consumer002', providerAddress: provAddr, status: 'failed', maxBudget: '2000000000000000', createdAt: new Date(now - 7_200_000).toISOString(), updatedAt: new Date(now - 7_190_000).toISOString(), deadline: new Date(now - 3_600_000).toISOString() },
+      {
+        id: 'task-demo-001', serviceId: 'svc-demo',
+        consumerId: 'erd1consumer', providerAddress: 'erd1provider',
+        status: 'completed', maxBudget: '1000000000000000', latencyMs: 187,
+        createdAt: new Date(now - 3_600_000).toISOString(),
+        updatedAt: new Date(now - 3_599_000).toISOString(),
+        deadline:  new Date(now +   300_000).toISOString(),
+      },
+      {
+        id: 'task-demo-002', serviceId: 'svc-demo',
+        consumerId: 'erd1consumer', providerAddress: 'erd1provider',
+        status: 'running', maxBudget: '5000000000000000',
+        createdAt: new Date(now -   120_000).toISOString(),
+        updatedAt: new Date(now -    60_000).toISOString(),
+        deadline:  new Date(now +   180_000).toISOString(),
+      },
+      {
+        id: 'task-demo-003', serviceId: 'svc-demo',
+        consumerId: 'erd1consumer', providerAddress: 'erd1provider',
+        status: 'pending', maxBudget: '500000000000000',
+        createdAt: new Date(now -    30_000).toISOString(),
+        updatedAt: new Date(now -    30_000).toISOString(),
+        deadline:  new Date(now +   270_000).toISOString(),
+      },
     ];
     for (const d of demos) this.store.set(d.id!, d as TaskRecord);
-    this.logger.log(`TasksService seeded ${this.store.size} demo tasks`);
+    this.logger.log(`Seeded ${this.store.size} demo tasks`);
   }
 
-  findAll(opts: { limit: number; status?: string; consumerId?: string; providerAddress?: string }) {
+  /** Canonical shape: { tasks, total } */
+  findAll(opts: { limit: number; status?: string }) {
     let list = Array.from(this.store.values()).sort(
       (a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime(),
     );
-    if (opts.status)          list = list.filter(t => t.status === opts.status);
-    if (opts.consumerId)      list = list.filter(t => t.consumerId === opts.consumerId);
-    if (opts.providerAddress) list = list.filter(t => t.providerAddress === opts.providerAddress);
-    return { tasks: list.slice(0, opts.limit), total: list.length };
+    if (opts.status) list = list.filter(t => t.status === opts.status);
+    const tasks = list.slice(0, opts.limit);
+    return { tasks, total: list.length };
   }
 
   findOne(id: string): TaskRecord {
@@ -73,26 +72,8 @@ export class TasksService implements OnModuleInit {
     return t;
   }
 
-  getMetrics(): TaskMetrics {
-    const all = Array.from(this.store.values());
-    const completed = all.filter(t => t.status === 'completed');
-    const latencies = completed.filter(t => t.latencyMs != null).map(t => t.latencyMs!);
-    return {
-      total:        all.length,
-      pending:      all.filter(t => t.status === 'pending').length,
-      running:      all.filter(t => t.status === 'running').length,
-      completed:    completed.length,
-      failed:       all.filter(t => t.status === 'failed').length,
-      disputed:     all.filter(t => t.status === 'disputed').length,
-      successRate:  all.length ? Math.round((completed.length / all.length) * 100) : 0,
-      avgLatencyMs: latencies.length
-        ? Math.round(latencies.reduce((s, v) => s + v, 0) / latencies.length)
-        : 0,
-    };
-  }
-
   create(body: Record<string, unknown>): TaskRecord {
-    const id = String(body.id ?? `task-${uuidv4().slice(0, 8)}`);
+    const id  = String(body.id ?? `task-${uuidv4().slice(0, 8)}`);
     const now = new Date().toISOString();
     const record: TaskRecord = {
       id,
@@ -108,50 +89,39 @@ export class TasksService implements OnModuleInit {
       deadline:        String(body.deadline ?? new Date(Date.now() + 300_000).toISOString()),
     };
     this.store.set(id, record);
-    this.gateway.broadcast('TaskCreated', { taskId: id, serviceId: record.serviceId, consumerId: record.consumerId });
     this.logger.log(`Task created: ${id}`);
-    setTimeout(() => this.simulateExecution(id), 2000 + Math.random() * 3000);
+    setTimeout(() => this._simulateExecution(id), 2000 + Math.random() * 3000);
     return record;
   }
 
   complete(id: string, proofHash: string, latencyMs: number): TaskRecord {
-    const task = this.findOne(id);
+    const task     = this.findOne(id);
     task.status    = 'completed';
     task.proofHash = proofHash;
     task.latencyMs = latencyMs;
     task.updatedAt = new Date().toISOString();
     this.store.set(id, task);
-    this.reputation.recordTaskOutcome(task.providerAddress, true, latencyMs);
-    this.gateway.broadcast('TaskCompleted', { taskId: id, proofHash, latencyMs });
     this.logger.log(`Task completed: ${id} — ${latencyMs}ms`);
     return task;
   }
 
-  private simulateExecution(id: string) {
+  private _simulateExecution(id: string) {
     const task = this.store.get(id);
     if (!task || task.status !== 'pending') return;
     task.status    = 'running';
     task.updatedAt = new Date().toISOString();
     this.store.set(id, task);
-    this.gateway.broadcast('TaskRunning', { taskId: id });
 
     const latency = 100 + Math.floor(Math.random() * 400);
     setTimeout(() => {
       const t = this.store.get(id);
       if (!t) return;
-      const success = Math.random() > 0.1;
+      const success  = Math.random() > 0.1;
       t.status    = success ? 'completed' : 'failed';
       t.latencyMs = success ? latency : undefined;
       t.proofHash = success ? `0x${uuidv4().replace(/-/g, '')}` : undefined;
       t.updatedAt = new Date().toISOString();
       this.store.set(id, t);
-      this.reputation.recordTaskOutcome(t.providerAddress, success, latency);
-      this.gateway.broadcast(success ? 'TaskCompleted' : 'TaskFailed', {
-        taskId: id,
-        providerAddress: t.providerAddress,
-        latencyMs: latency,
-        proofHash: t.proofHash,
-      });
       this.logger.log(`Task ${id} → ${t.status}${success ? ` (${latency}ms)` : ''}`);
     }, latency);
   }
