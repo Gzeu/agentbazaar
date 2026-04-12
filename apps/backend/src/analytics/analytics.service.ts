@@ -1,6 +1,6 @@
 import { Injectable } from '@nestjs/common';
-import { TasksService } from '../tasks/tasks.service';
-import { ServicesService } from '../services/services.service';
+import { TasksService }      from '../tasks/tasks.service';
+import { ServicesService }   from '../services/services.service';
 import { ReputationService } from '../reputation/reputation.service';
 
 @Injectable()
@@ -31,8 +31,7 @@ export class AnalyticsService {
       (s, t) => s + BigInt(t.maxBudget ?? '0'), BigInt(0),
     );
 
-    const completionRate = allTasks.length
-      ? completed.length / allTasks.length : 0;
+    const completionRate = allTasks.length ? completed.length / allTasks.length : 0;
 
     return {
       timestamp: new Date().toISOString(),

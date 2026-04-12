@@ -1,34 +1,33 @@
 import { Controller, Get, Post, Param, Body, Query } from '@nestjs/common';
-import { ServicesService } from './services.service';
 import { ApiTags, ApiOperation, ApiQuery, ApiParam } from '@nestjs/swagger';
+import { ServicesService } from './services.service';
 
 @ApiTags('services')
 @Controller('services')
 export class ServicesController {
-  constructor(private readonly svc: ServicesService) {}
+  constructor(private readonly services: ServicesService) {}
 
   @Get()
-  @ApiOperation({ summary: 'List registered services' })
-  @ApiQuery({ name: 'category', required: false })
-  @ApiQuery({ name: 'limit', required: false, description: 'Default 50, max 100' })
+  @ApiOperation({ summary: 'List registered AI services' })
+  @ApiQuery({ name: 'limit',    required: false, example: 50 })
+  @ApiQuery({ name: 'category', required: false, example: 'data' })
   findAll(
+    @Query('limit')    limit    = '50',
     @Query('category') category?: string,
-    @Query('limit') limit = '50',
   ) {
-    return this.svc.findAll({ category, limit: Math.min(Number(limit), 100) });
-    // returns { services: ServiceRecord[], total: number }
+    return this.services.findAll({ limit: Number(limit), category });
   }
 
   @Get(':id')
-  @ApiOperation({ summary: 'Get a service by ID' })
-  @ApiParam({ name: 'id' })
+  @ApiOperation({ summary: 'Get a single service by ID' })
+  @ApiParam({ name: 'id', example: 'svc-abc12345' })
   findOne(@Param('id') id: string) {
-    return this.svc.findOne(id);
+    return this.services.findOne(id);
   }
 
   @Post()
-  @ApiOperation({ summary: 'Register a new service (post on-chain TX)' })
+  @ApiOperation({ summary: 'Register a new AI service' })
   create(@Body() body: Record<string, unknown>) {
-    return this.svc.create(body);
+    return this.services.create(body);
   }
 }

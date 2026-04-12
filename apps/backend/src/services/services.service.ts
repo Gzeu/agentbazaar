@@ -2,30 +2,29 @@ import { Injectable, NotFoundException, OnModuleInit, Logger } from '@nestjs/com
 import { v4 as uuidv4 } from 'uuid';
 
 export interface ServiceRecord {
-  id: string;
-  name: string;
-  category: string;
-  description: string;
-  providerAddress: string;
-  endpoint: string;
-  pricingModel: string;
-  priceAmount: string;
-  priceToken: string;
-  maxLatencyMs: number;
-  uptimeGuarantee: number;
-  reputationScore: number; // bps 0-10000
-  totalTasks: number;
-  ucpCompatible: boolean;
-  mcpCompatible: boolean;
-  tags: string[];
-  active: boolean;
-  createdAt: string;
+  id:               string;
+  name:             string;
+  category:         string;
+  description:      string;
+  providerAddress:  string;
+  endpoint:         string;
+  pricingModel:     string;
+  priceAmount:      string;
+  priceToken:       string;
+  maxLatencyMs:     number;
+  uptimeGuarantee:  number;
+  reputationScore:  number;
+  totalTasks:       number;
+  ucpCompatible:    boolean;
+  mcpCompatible:    boolean;
+  tags:             string[];
+  active:           boolean;
+  createdAt:        string;
 }
 
 const SEED: Omit<ServiceRecord, 'id' | 'createdAt'>[] = [
   {
-    name: 'DataFetch Pro', category: 'data',
-    description: 'Real-time market data for any token pair. Sub-300ms SLA.',
+    name: 'DataFetch Pro',     category: 'data',       description: 'Real-time market data for any token pair. Sub-300ms SLA.',
     providerAddress: 'erd1qqqqqqqqqqqqqpgq0000000000000000000000000000000000000001',
     endpoint: 'https://mock-agent-1.agentbazaar.io/mcp', pricingModel: 'per-call',
     priceAmount: '1000000000000000', priceToken: 'EGLD',
@@ -34,8 +33,7 @@ const SEED: Omit<ServiceRecord, 'id' | 'createdAt'>[] = [
     tags: ['market', 'realtime', 'json'], active: true,
   },
   {
-    name: 'ML Compute Node', category: 'compute',
-    description: 'Distributed GPU inference for LLM and embedding tasks.',
+    name: 'ML Compute Node',   category: 'compute',    description: 'Distributed GPU inference for LLM and embedding tasks.',
     providerAddress: 'erd1qqqqqqqqqqqqqpgq0000000000000000000000000000000000000002',
     endpoint: 'https://mock-agent-2.agentbazaar.io/mcp', pricingModel: 'per-call',
     priceAmount: '5000000000000000', priceToken: 'EGLD',
@@ -44,18 +42,16 @@ const SEED: Omit<ServiceRecord, 'id' | 'createdAt'>[] = [
     tags: ['gpu', 'llm', 'embeddings'], active: true,
   },
   {
-    name: 'EGLD Price Oracle', category: 'data',
-    description: 'Signed EGLD/USDC price feed updated every 30s on-chain.',
+    name: 'EGLD Price Oracle', category: 'data',       description: 'Signed EGLD/USDC price feed updated every 30s on-chain.',
     providerAddress: 'erd1qqqqqqqqqqqqqpgq0000000000000000000000000000000000000003',
     endpoint: 'https://mock-agent-3.agentbazaar.io/mcp', pricingModel: 'per-call',
-    priceAmount: '500000000000000', priceToken: 'EGLD',
+    priceAmount: '500000000000000',  priceToken: 'EGLD',
     maxLatencyMs: 100, uptimeGuarantee: 99, reputationScore: 9900,
     totalTasks: 3204, ucpCompatible: true, mcpCompatible: false,
     tags: ['oracle', 'price', 'signed'], active: true,
   },
   {
-    name: 'AML Compliance', category: 'compliance',
-    description: 'KYT/AML screening for wallet addresses.',
+    name: 'AML Compliance',    category: 'compliance', description: 'KYT/AML screening for wallet addresses.',
     providerAddress: 'erd1qqqqqqqqqqqqqpgq0000000000000000000000000000000000000004',
     endpoint: 'https://mock-agent-4.agentbazaar.io/mcp', pricingModel: 'per-call',
     priceAmount: '3000000000000000', priceToken: 'EGLD',
@@ -82,14 +78,20 @@ export class ServicesService implements OnModuleInit {
   findAll(opts: { category?: string; limit: number }) {
     let list = Array.from(this.store.values());
     if (opts.category) list = list.filter(s => s.category === opts.category);
-    const services = list.slice(0, opts.limit);
-    return { services, total: list.length };
+    return { services: list.slice(0, opts.limit), total: list.length };
   }
 
-  findOne(id: string) {
+  findOne(id: string): ServiceRecord {
     const s = this.store.get(id);
     if (!s) throw new NotFoundException(`Service ${id} not found`);
     return s;
+  }
+
+  update(id: string, patch: Partial<ServiceRecord>): ServiceRecord {
+    const s = this.findOne(id);
+    const updated = { ...s, ...patch, id, updatedAt: new Date().toISOString() } as ServiceRecord;
+    this.store.set(id, updated);
+    return updated;
   }
 
   create(body: Record<string, unknown>): ServiceRecord {
@@ -117,12 +119,5 @@ export class ServicesService implements OnModuleInit {
     this.store.set(id, record);
     this.logger.log(`Service registered: ${id} — ${record.name}`);
     return record;
-  }
-
-  update(id: string, patch: Partial<ServiceRecord>): ServiceRecord {
-    const existing = this.findOne(id);
-    const updated = { ...existing, ...patch };
-    this.store.set(id, updated);
-    return updated;
   }
 }
