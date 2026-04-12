@@ -2,19 +2,19 @@ import { Injectable, Logger, OnModuleDestroy } from '@nestjs/common';
 import { Cron, CronExpression } from '@nestjs/schedule';
 import { EventEmitter2 } from '@nestjs/event-emitter';
 import { MultiversxService } from '../multiversx/multiversx.service';
-import { McpClientService } from '../multiversx/mcp-client.service';
-import { TasksService } from '../tasks/tasks.service';
-import { ChainEvent } from './events.gateway';
+import { EventsGateway } from './events.gateway';
+import { ChainEvent } from './chain-event.types';
 import { v4 as uuidv4 } from 'uuid';
 
 const EVENT_IDENTIFIERS: Record<string, string> = {
-  registerService: 'ServiceRegistered',
-  createTask:      'TaskCreated',
-  completeTask:    'TaskCompleted',
-  refundTask:      'TaskRefunded',
-  openDispute:     'TaskDisputed',
-  resolveDispute:  'TaskDisputed',
-  recordTaskOutcome: 'ReputationUpdated',
+  serviceRegistered: 'ServiceRegistered',
+  taskCreated:       'TaskCreated',
+  taskCompleted:     'TaskCompleted',
+  taskRefunded:      'TaskRefunded',
+  disputeOpened:     'TaskDisputed',
+  disputeResolved:   'TaskDisputed',
+  scoreUpdated:      'ReputationUpdated',
+  agentSlashed:      'ReputationUpdated',
 };
 
 @Injectable()
@@ -25,12 +25,13 @@ export class EventPoller implements OnModuleDestroy {
 
   constructor(
     private readonly mvx:     MultiversxService,
-    private readonly mcp:     McpClientService,
-    private readonly tasks:   TasksService,
     private readonly emitter: EventEmitter2,
+    private readonly gateway: EventsGateway,
   ) {}
 
-  onModuleDestroy() { this.running = false; }
+  onModuleDestroy() {
+    this.running = false;
+  }
 
   @Cron(CronExpression.EVERY_2_SECONDS)
   async poll() {
@@ -54,97 +55,51 @@ export class EventPoller implements OnModuleDestroy {
       if (currentNonce <= this.lastNonce) return;
 
       for (const address of contracts) {
-        await this.fetchContractEvents(address, this.lastNonce, currentNonce);
+        await this.fetchContractEvents(address);
       }
-
       this.lastNonce = currentNonce;
     } catch (err) {
       this.logger.warn(`EventPoller error: ${(err as Error).message}`);
     }
   }
 
-  private async fetchContractEvents(
-    address: string,
-    _fromNonce: number,
-    _toNonce: number,
-  ) {
+  private async fetchContractEvents(address: string) {
     try {
-      const network = this.mvx.NETWORK;
-      const apiUrl =
-        network === 'mainnet'
-          ? 'https://api.multiversx.com'
-          : `https://${network}-api.multiversx.com`;
+      const apiUrl = this.mvx.NETWORK === 'mainnet'
+        ? 'https://api.multiversx.com'
+        : `https://${this.mvx.NETWORK}-api.multiversx.com`;
 
-      const url = `${apiUrl}/accounts/${address}/transactions?status=success&size=25&order=asc`;
-      const res = await fetch(url, { headers: { Accept: 'application/json' } });
+      const res = await fetch(
+        `${apiUrl}/accounts/${address}/transactions?status=success&size=25&order=asc`,
+        { headers: { Accept: 'application/json' } },
+      );
       if (!res.ok) return;
 
       const txs: Record<string, unknown>[] = await res.json();
-
       for (const tx of txs) {
-        const func   = (tx['function'] as string) || '';
-        const mapped = EVENT_IDENTIFIERS[func] || func;
+        const func   = String(tx['function'] ?? '');
+        const mapped = EVENT_IDENTIFIERS[func] ?? func;
         if (!mapped) continue;
 
         const event: ChainEvent = {
-          id:         (tx['txHash'] as string) || uuidv4(),
+          id:         String(tx['txHash'] ?? uuidv4()),
           type:       mapped,
-          txHash:     tx['txHash'] as string,
-          timestamp:  (tx['timestamp'] as number) * 1000,
-          blockNonce: (tx['round'] as number) || 0,
+          txHash:     tx['txHash'] as string | undefined,
+          timestamp:  Number(tx['timestamp'] ?? 0) * 1000,
+          blockNonce: Number(tx['round'] ?? 0),
           data: {
             sender:   tx['sender'],
             receiver: tx['receiver'],
-            value:    tx['value'] || '0',
+            value:    tx['value'] ?? '0',
             function: func,
           },
         };
 
-        // ── Sync task status from on-chain events ──────────
-        if (mapped === 'TaskCompleted') {
-          await this.handleTaskCompleted(tx);
-        }
-
+        this.gateway.broadcastChainEvent(event);
         this.emitter.emit('chain.event', event);
       }
     } catch (err) {
-      this.logger.debug(
-        `fetchContractEvents error for ${address}: ${(err as Error).message}`,
-      );
-    }
-  }
-
-  /**
-   * When a TaskCompleted event arrives from the escrow contract,
-   * decode it via SC MCP and sync the local task store.
-   */
-  private async handleTaskCompleted(tx: Record<string, unknown>) {
-    if (!this.mcp.isConnected) return;
-
-    const txHash = tx['txHash'] as string;
-    if (!txHash) return;
-
-    try {
-      const decoded = await this.mcp.decodeTx(txHash);
-      if (!decoded.success || !decoded.data) return;
-
-      const data = decoded.data as Record<string, unknown>;
-      const args = data['args'] as string[] | undefined;
-      if (!args || args.length < 2) return;
-
-      const taskId    = Buffer.from(args[0], 'hex').toString('utf8');
-      const proofHash = Buffer.from(args[1], 'hex').toString('utf8');
-      const latencyMs = parseInt(args[2] ?? '0', 16);
-
-      // Update task in memory with on-chain confirmed data
-      try {
-        this.tasks.complete(taskId, proofHash, latencyMs || 0);
-        this.logger.log(`On-chain sync: task ${taskId} completed (txHash=${txHash})`);
-      } catch {
-        // Task might not be in local store (e.g. from another backend instance)
-      }
-    } catch (err) {
-      this.logger.debug(`handleTaskCompleted decode error: ${(err as Error).message}`);
+      this.logger.debug(`fetchContractEvents error for ${address}: ${(err as Error).message}`);
     }
   }
 
@@ -154,18 +109,16 @@ export class EventPoller implements OnModuleDestroy {
       'ReputationUpdated', 'EscrowReleased',
     ];
     const rnd = (n: number) =>
-      Array.from({ length: n }, () =>
-        Math.floor(Math.random() * 16).toString(16),
-      ).join('');
-    const type = types[Math.floor(Math.random() * types.length)];
+      Array.from({ length: n }, () => Math.floor(Math.random() * 16).toString(16)).join('');
     const event: ChainEvent = {
       id:         rnd(8),
-      type,
+      type:       types[Math.floor(Math.random() * types.length)],
       txHash:     rnd(32),
       timestamp:  Date.now(),
       blockNonce: Math.floor(Math.random() * 9_999_999),
       data:       { mock: 'true', source: 'EventPoller' },
     };
+    this.gateway.broadcastChainEvent(event);
     this.emitter.emit('chain.event', event);
   }
 }

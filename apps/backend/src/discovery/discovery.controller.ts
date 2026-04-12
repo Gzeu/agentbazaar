@@ -5,55 +5,34 @@ import { ApiTags, ApiOperation, ApiQuery } from '@nestjs/swagger';
 @ApiTags('discovery')
 @Controller('discovery')
 export class DiscoveryController {
-  constructor(private readonly svc: DiscoveryService) {}
+  constructor(private readonly discovery: DiscoveryService) {}
 
   @Get()
-  @ApiOperation({ summary: 'Discover services by filter criteria' })
-  @ApiQuery({ name: 'category',    required: false })
-  @ApiQuery({ name: 'maxLatency',  required: false, type: Number })
-  @ApiQuery({ name: 'minScore',    required: false, type: Number })
-  @ApiQuery({ name: 'mcpRequired', required: false, type: Boolean })
+  @ApiOperation({ summary: 'Discover services matching constraints (UCP-compatible)' })
+  @ApiQuery({ name: 'category',   required: false, description: 'Service category' })
+  @ApiQuery({ name: 'tags',       required: false, description: 'Comma-separated tags' })
+  @ApiQuery({ name: 'maxLatency', required: false, description: 'Max acceptable latency (ms)' })
+  @ApiQuery({ name: 'minScore',   required: false, description: 'Min reputation score (0-10000 bps)' })
+  @ApiQuery({ name: 'ucp',        required: false, description: 'Require UCP compatibility' })
+  @ApiQuery({ name: 'mcp',        required: false, description: 'Require MCP compatibility' })
+  @ApiQuery({ name: 'limit',      required: false, description: 'Max results (default 50, max 100)' })
   discover(
-    @Query('category')    category?:    string,
-    @Query('maxLatency')  maxLatency?:  string,
-    @Query('minScore')    minScore?:    string,
-    @Query('mcpRequired') mcpRequired?: string,
+    @Query('category')   category?: string,
+    @Query('tags')       tags?: string,
+    @Query('maxLatency') maxLatency?: string,
+    @Query('minScore')   minScore?: string,
+    @Query('ucp')        ucp?: string,
+    @Query('mcp')        mcp?: string,
+    @Query('limit')      limit?: string,
   ) {
-    return this.svc.discover({
+    return this.discovery.discover({
       category,
+      tags:         tags ? tags.split(',').map(t => t.trim()) : undefined,
       maxLatencyMs: maxLatency ? Number(maxLatency) : undefined,
       minScore:     minScore   ? Number(minScore)   : undefined,
-      ucpRequired:  true,
-      mcpRequired:  mcpRequired === 'true',
+      ucpRequired:  ucp === 'true',
+      mcpRequired:  mcp === 'true',
+      limit:        limit ? Number(limit) : undefined,
     });
-  }
-
-  /**
-   * UCP-standard service catalog endpoint.
-   * AI agents (Claude, Cursor, OpenClaw, etc.) can hit this URL
-   * to discover all available services, pricing, and how to pay via x402.
-   *
-   * Example: GET /discovery/ucp
-   */
-  @Get('ucp')
-  @ApiOperation({
-    summary: 'UCP service catalog — machine-readable for AI agents',
-    description:
-      'Returns all services in UCP/1.0 format. ' +
-      'AI agents use this to discover services, get pricing, ' +
-      'and initiate x402 escrow payments before calling provider endpoints.',
-  })
-  async ucpCatalog() {
-    return this.svc.getUcpCatalog();
-  }
-
-  /**
-   * UCP well-known endpoint — standard path for agent discovery.
-   * Some UCP clients look for /.well-known/ucp by convention.
-   */
-  @Get('well-known')
-  @ApiOperation({ summary: 'UCP well-known alias' })
-  async wellKnown() {
-    return this.svc.getUcpCatalog();
   }
 }
