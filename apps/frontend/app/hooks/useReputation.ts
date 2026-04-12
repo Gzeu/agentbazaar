@@ -1,41 +1,29 @@
-import { useState, useEffect } from 'react';
+'use client';
 
-const API = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:3001';
+import { useState, useEffect, useCallback } from 'react';
+import { reputationApi } from '@/lib/api';
+import type { ReputationRecord } from '@/lib/types';
 
-export interface ReputationEntry {
-  address: string;
-  score: number;
-  totalTasks: number;
-  successRate: number;
-  avgLatencyMs: number;
-  onChain: boolean;
-}
+export function useReputation(address: string | null) {
+  const [data, setData] = useState<ReputationRecord | null>(null);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
-export function useLeaderboard(limit = 10) {
-  const [data, setData] = useState<ReputationEntry[]>([]);
-  const [loading, setLoading] = useState(true);
-
-  useEffect(() => {
-    fetch(`${API}/reputation/leaderboard?limit=${limit}`)
-      .then(r => r.json())
-      .then(j => { setData(j.data ?? []); setLoading(false); })
-      .catch(() => setLoading(false));
-  }, [limit]);
-
-  return { data, loading };
-}
-
-export function useReputation(address: string) {
-  const [data, setData] = useState<ReputationEntry | null>(null);
-  const [loading, setLoading] = useState(true);
-
-  useEffect(() => {
+  const fetch = useCallback(async () => {
     if (!address) return;
-    fetch(`${API}/reputation/${address}`)
-      .then(r => r.json())
-      .then(j => { setData(j); setLoading(false); })
-      .catch(() => setLoading(false));
+    setLoading(true);
+    try {
+      const result = await reputationApi.get(address);
+      setData(result);
+      setError(null);
+    } catch (e: unknown) {
+      setError(e instanceof Error ? e.message : 'fetch_failed');
+    } finally {
+      setLoading(false);
+    }
   }, [address]);
 
-  return { data, loading };
+  useEffect(() => { fetch(); }, [fetch]);
+
+  return { data, loading, error, refetch: fetch };
 }

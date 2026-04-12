@@ -40,6 +40,9 @@ export const discoveryApi = {
 
 // --- Tasks ---
 export const tasksApi = {
+  list: (params?: Record<string, unknown>) =>
+    api.get('/api/v1/tasks', { params }).then((r) => r.data),
+
   submit: (data: unknown) =>
     api.post('/api/v1/tasks', data).then((r) => r.data),
 
@@ -54,6 +57,9 @@ export const tasksApi = {
 
   byProvider: (address: string) =>
     api.get(`/api/v1/tasks/provider/${address}`).then((r) => r.data),
+
+  metrics: () =>
+    api.get('/api/v1/tasks/metrics').then((r) => r.data),
 };
 
 // --- Reputation ---
@@ -63,4 +69,12 @@ export const reputationApi = {
 
   history: (address: string) =>
     api.get(`/api/v1/reputation/${address}/history`).then((r) => r.data),
+
+  leaderboard: (limit = 20) =>
+    api.get('/api/v1/reputation/leaderboard', { params: { limit } }).then((r) => r.data),
+};
+
+// --- Health ---
+export const healthApi = {
+  get: () => api.get('/health').then((r) => r.data),
 };

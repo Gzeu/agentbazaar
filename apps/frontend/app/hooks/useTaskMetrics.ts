@@ -3,29 +3,28 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { api } from '@/lib/api';
 
-export interface HealthData {
-  status: string;
-  mcp_tools_loaded: number;
-  multiversx_reachable: boolean;
-  uptime_seconds: number;
-  version: string;
-  nonce?: number;
+export interface TaskMetrics {
+  total: number;
+  pending: number;
+  running: number;
+  completed: number;
+  failed: number;
+  disputed: number;
+  successRate: number;
+  avgLatencyMs: number;
 }
 
-export function useHealth(intervalMs = 30_000) {
-  const [health, setHealth] = useState<HealthData | null>(null);
+export function useTaskMetrics(intervalMs = 15_000) {
+  const [metrics, setMetrics] = useState<TaskMetrics | null>(null);
   const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
   const timer = useRef<ReturnType<typeof setInterval> | null>(null);
 
   const fetch = useCallback(async () => {
     try {
-      const { data } = await api.get('/health');
-      setHealth(data);
-      setError(null);
+      const { data } = await api.get('/api/v1/tasks/metrics');
+      setMetrics(data);
     } catch {
-      setHealth(null);
-      setError('unreachable');
+      /* silent — metrics are nice-to-have */
     } finally {
       setLoading(false);
     }
@@ -37,5 +36,5 @@ export function useHealth(intervalMs = 30_000) {
     return () => { if (timer.current) clearInterval(timer.current); };
   }, [fetch, intervalMs]);
 
-  return { health, loading, error, refetch: fetch };
+  return { metrics, loading, refetch: fetch };
 }

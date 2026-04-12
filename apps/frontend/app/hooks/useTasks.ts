@@ -1,81 +1,75 @@
-import { useState, useEffect, useCallback } from 'react';
+'use client';
 
-const API = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:3001';
+import { useState, useEffect, useRef, useCallback } from 'react';
+import { tasksApi } from '@/lib/api';
+import type { Task, TaskStatus } from '@/lib/types';
 
-export type TaskStatus = 'pending' | 'running' | 'completed' | 'failed' | 'disputed';
+export type TaskFilter = 'all' | TaskStatus;
 
-export interface Task {
-  id: string;
-  serviceId: string;
-  consumerId: string;
-  providerAddress: string;
-  status: TaskStatus;
-  maxBudget: string;
-  proofHash?: string;
-  escrowTxHash?: string;
-  latencyMs?: number;
-  onChainVerified: boolean;
-  createdAt: string;
-  updatedAt: string;
-  deadline: string;
-}
-
-export interface TaskMetrics {
-  total: number; completed: number; failed: number;
-  pending: number; running: number; disputed: number;
-  successRate: number; avgLatencyMs: number; onChainVerifiedRate: number;
-}
-
-export function useTasks(opts?: { status?: TaskStatus; limit?: number }, pollMs = 8_000) {
+export function useTasks(intervalMs = 6_000) {
   const [tasks, setTasks] = useState<Task[]>([]);
-  const [total, setTotal] = useState(0);
+  const [filter, setFilter] = useState<TaskFilter>('all');
+  const [serviceId, setServiceId] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
+  const [submitting, setSubmitting] = useState(false);
+  const timer = useRef<ReturnType<typeof setInterval> | null>(null);
 
-  const fetch_ = useCallback(async () => {
-    const params = new URLSearchParams();
-    if (opts?.status) params.set('status', opts.status);
-    if (opts?.limit)  params.set('limit', String(opts.limit));
+  const fetchAll = useCallback(async () => {
     try {
-      const res = await fetch(`${API}/tasks?${params}`);
-      const j = await res.json();
-      setTasks(j.data ?? []);
-      setTotal(j.total ?? 0);
-    } catch { /* silent */ }
-    finally { setLoading(false); }
-  }, [opts?.status, opts?.limit]);
+      // Try real API first; fall back to empty on error
+      const result = await tasksApi.list?.() ?? [];
+      setTasks(result?.tasks ?? result ?? []);
+    } catch {
+      /* keep previous data */
+    } finally {
+      setLoading(false);
+    }
+  }, []);
 
   useEffect(() => {
-    fetch_();
-    const id = setInterval(fetch_, pollMs);
-    return () => clearInterval(id);
-  }, [fetch_, pollMs]);
+    fetchAll();
+    timer.current = setInterval(fetchAll, intervalMs);
+    return () => { if (timer.current) clearInterval(timer.current); };
+  }, [fetchAll, intervalMs]);
 
-  return { tasks, total, loading, refetch: fetch_ };
-}
+  const filtered = tasks.filter(t => {
+    if (filter !== 'all' && t.status !== filter) return false;
+    if (serviceId && t.serviceId !== serviceId) return false;
+    return true;
+  }).sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
 
-export function useTaskMetrics(pollMs = 10_000) {
-  const [metrics, setMetrics] = useState<TaskMetrics | null>(null);
+  const stats = {
+    total: tasks.length,
+    pending: tasks.filter(t => t.status === 'pending').length,
+    running: tasks.filter(t => t.status === 'running').length,
+    completed: tasks.filter(t => t.status === 'completed').length,
+    failed: tasks.filter(t => t.status === 'failed').length,
+    disputed: tasks.filter(t => t.status === 'disputed').length,
+    avgLatency: Math.round(
+      tasks.filter(t => t.latencyMs).reduce((s, t) => s + (t.latencyMs ?? 0), 0) /
+      Math.max(1, tasks.filter(t => t.latencyMs).length)
+    ),
+    successRate: tasks.length
+      ? Math.round((tasks.filter(t => t.status === 'completed').length / tasks.length) * 100)
+      : 0,
+  };
 
-  useEffect(() => {
-    const load = () =>
-      fetch(`${API}/tasks/metrics`)
-        .then(r => r.json())
-        .then(setMetrics)
-        .catch(() => {});
-    load();
-    const id = setInterval(load, pollMs);
-    return () => clearInterval(id);
-  }, [pollMs]);
+  const submitTask = useCallback(async (payload: {
+    serviceId: string;
+    consumerAddress: string;
+    providerAddress: string;
+    maxBudget: string;
+    inputData?: Record<string, unknown>;
+  }) => {
+    setSubmitting(true);
+    try {
+      const result = await tasksApi.submit(payload);
+      await fetchAll();
+      return result;
+    } finally {
+      setSubmitting(false);
+    }
+  }, [fetchAll]);
 
-  return metrics;
-}
-
-export async function submitTask(body: Partial<Task> & Record<string, unknown>) {
-  const res = await fetch(`${API}/tasks`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(body),
-  });
-  if (!res.ok) throw new Error(`Submit failed: ${res.status}`);
-  return res.json() as Promise<Task>;
+  return { tasks: filtered, filter, setFilter, serviceId, setServiceId, stats, loading, submitting, submitTask, refetch: fetchAll };
 }
