@@ -1,67 +1,112 @@
 import { Injectable, Logger, OnModuleInit } from '@nestjs/common';
+import { OnEvent } from '@nestjs/event-emitter';
+import { McpContractService } from '../multiversx/mcp-contract.service';
 import { MultiversxService } from '../multiversx/multiversx.service';
+import { ChainEvent } from '../events/events.gateway';
 
-export interface ReputationEntry {
-  agentAddress: string;
-  compositeScore: number;
-  completionRate: number;
+export interface ReputationRecord {
+  address: string;
+  score: number;
   totalTasks: number;
-  successfulTasks: number;
+  successTasks: number;
   avgLatencyMs: number;
-  slashed: boolean;
+  lastUpdated: string;
+  onChain: boolean; // true = synced from contract
 }
-
-const MOCK_LEADERBOARD: ReputationEntry[] = [
-  { agentAddress: 'erd1abc…0001', compositeScore: 99, completionRate: 1.00, totalTasks: 3204, successfulTasks: 3204, avgLatencyMs: 88,  slashed: false },
-  { agentAddress: 'erd1def…0002', compositeScore: 97, completionRate: 0.99, totalTasks: 412,  successfulTasks: 408,  avgLatencyMs: 188, slashed: false },
-  { agentAddress: 'erd1ghi…0003', compositeScore: 92, completionRate: 0.95, totalTasks: 189,  successfulTasks: 179,  avgLatencyMs: 420, slashed: false },
-  { agentAddress: 'erd1jkl…0004', compositeScore: 84, completionRate: 0.87, totalTasks: 230,  successfulTasks: 200,  avgLatencyMs: 512, slashed: false },
-  { agentAddress: 'erd1mno…0005', compositeScore: 61, completionRate: 0.70, totalTasks: 44,   successfulTasks: 31,   avgLatencyMs: 890, slashed: true  },
-];
 
 @Injectable()
 export class ReputationService implements OnModuleInit {
   private readonly logger = new Logger(ReputationService.name);
-  private cache = new Map<string, ReputationEntry>();
+  private store = new Map<string, ReputationRecord>();
 
-  constructor(private mvx: MultiversxService) {}
+  constructor(
+    private readonly contracts: McpContractService,
+    private readonly mvx: MultiversxService,
+  ) {}
 
   onModuleInit() {
-    for (const e of MOCK_LEADERBOARD) {
-      this.cache.set(e.agentAddress, e);
+    // Seed demo reputation data
+    const demos = [
+      { address: 'erd1provider001', score: 97, totalTasks: 412, successTasks: 400, avgLatencyMs: 187 },
+      { address: 'erd1provider002', score: 92, totalTasks: 189, successTasks: 175, avgLatencyMs: 310 },
+      { address: 'erd1provider003', score: 99, totalTasks: 3204, successTasks: 3200, avgLatencyMs: 95 },
+    ];
+    for (const d of demos) {
+      this.store.set(d.address, {
+        ...d,
+        lastUpdated: new Date().toISOString(),
+        onChain: false,
+      });
     }
-    this.logger.log('Reputation cache seeded with mock data');
+    this.logger.log(`Seeded ${this.store.size} reputation records`);
   }
 
-  getLeaderboard(limit: number): ReputationEntry[] {
-    return Array.from(this.cache.values())
-      .sort((a, b) => b.compositeScore - a.compositeScore)
-      .slice(0, limit);
+  /**
+   * Get reputation — tries on-chain first via SC MCP, falls back to local store.
+   */
+  async getScore(address: string): Promise<ReputationRecord> {
+    if (this.mvx.REPUTATION_CONTRACT) {
+      try {
+        const onChainScore = await this.contracts.getReputation(address);
+        if (onChainScore > 0) {
+          const record: ReputationRecord = {
+            address,
+            score:        onChainScore,
+            totalTasks:   this.store.get(address)?.totalTasks ?? 0,
+            successTasks: this.store.get(address)?.successTasks ?? 0,
+            avgLatencyMs: this.store.get(address)?.avgLatencyMs ?? 0,
+            lastUpdated:  new Date().toISOString(),
+            onChain:      true,
+          };
+          this.store.set(address, record);
+          return record;
+        }
+      } catch (err) {
+        this.logger.debug(`On-chain getScore failed: ${(err as Error).message}`);
+      }
+    }
+
+    // Fallback: local store
+    return (
+      this.store.get(address) ?? {
+        address,
+        score:        0,
+        totalTasks:   0,
+        successTasks: 0,
+        avgLatencyMs: 0,
+        lastUpdated:  new Date().toISOString(),
+        onChain:      false,
+      }
+    );
   }
 
-  getReputation(address: string): ReputationEntry {
-    return this.cache.get(address) ?? {
-      agentAddress: address,
-      compositeScore: 0,
-      completionRate: 0,
-      totalTasks: 0,
-      successfulTasks: 0,
-      avgLatencyMs: 0,
-      slashed: false,
-    };
+  getAll(): ReputationRecord[] {
+    return Array.from(this.store.values()).sort((a, b) => b.score - a.score);
   }
 
-  async syncFromChain(address: string): Promise<void> {
-    if (!this.mvx.isConfigured()) return;
+  // ── Listen to on-chain ReputationUpdated events ─────────
+  @OnEvent('chain.event')
+  async onChainEvent(event: ChainEvent) {
+    if (event.type !== 'ReputationUpdated') return;
+
+    const address = (event.data as Record<string, unknown>)?.['sender'] as string;
+    if (!address) return;
+
     try {
-      const result = await this.mvx.queryContract(
-        this.mvx.addresses.reputation,
-        'getReputation',
-        [Buffer.from(address).toString('hex')],
-      );
-      if (result) this.logger.debug(`On-chain reputation synced for ${address}`);
+      const score = await this.contracts.getReputation(address);
+      const existing = this.store.get(address);
+      this.store.set(address, {
+        address,
+        score,
+        totalTasks:   (existing?.totalTasks ?? 0) + 1,
+        successTasks: existing?.successTasks ?? 0,
+        avgLatencyMs: existing?.avgLatencyMs ?? 0,
+        lastUpdated:  new Date().toISOString(),
+        onChain:      true,
+      });
+      this.logger.log(`Reputation synced for ${address}: ${score}`);
     } catch (err) {
-      this.logger.warn(`syncFromChain failed: ${(err as Error).message}`);
+      this.logger.debug(`Reputation sync error: ${(err as Error).message}`);
     }
   }
 }

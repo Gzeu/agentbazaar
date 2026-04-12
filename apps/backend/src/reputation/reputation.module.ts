@@ -1,12 +1,12 @@
 import { Module } from '@nestjs/common';
-import { ReputationController } from './reputation.controller';
 import { ReputationService } from './reputation.service';
+import { ReputationController } from './reputation.controller';
 import { MultiversxModule } from '../multiversx/multiversx.module';
 
 @Module({
-  imports: [MultiversxModule],
+  imports:     [MultiversxModule],
+  providers:   [ReputationService],
   controllers: [ReputationController],
-  providers: [ReputationService],
-  exports: [ReputationService],
+  exports:     [ReputationService],
 })
 export class ReputationModule {}

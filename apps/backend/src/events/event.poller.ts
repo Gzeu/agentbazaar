@@ -2,19 +2,19 @@ import { Injectable, Logger, OnModuleDestroy } from '@nestjs/common';
 import { Cron, CronExpression } from '@nestjs/schedule';
 import { EventEmitter2 } from '@nestjs/event-emitter';
 import { MultiversxService } from '../multiversx/multiversx.service';
+import { McpClientService } from '../multiversx/mcp-client.service';
+import { TasksService } from '../tasks/tasks.service';
 import { ChainEvent } from './events.gateway';
 import { v4 as uuidv4 } from 'uuid';
 
-// Known event identifiers in MultiversX log topics (hex encoded first topic = event name)
 const EVENT_IDENTIFIERS: Record<string, string> = {
-  serviceRegistered: 'ServiceRegistered',
-  taskCreated: 'TaskCreated',
-  taskCompleted: 'TaskCompleted',
-  taskRefunded: 'TaskRefunded',
-  disputeOpened: 'TaskDisputed',
-  disputeResolved: 'TaskDisputed',
-  scoreUpdated: 'ReputationUpdated',
-  agentSlashed: 'ReputationUpdated',
+  registerService: 'ServiceRegistered',
+  createTask:      'TaskCreated',
+  completeTask:    'TaskCompleted',
+  refundTask:      'TaskRefunded',
+  openDispute:     'TaskDisputed',
+  resolveDispute:  'TaskDisputed',
+  recordTaskOutcome: 'ReputationUpdated',
 };
 
 @Injectable()
@@ -24,17 +24,18 @@ export class EventPoller implements OnModuleDestroy {
   private running = true;
 
   constructor(
-    private readonly mvx: MultiversxService,
+    private readonly mvx:     MultiversxService,
+    private readonly mcp:     McpClientService,
+    private readonly tasks:   TasksService,
     private readonly emitter: EventEmitter2,
   ) {}
 
-  onModuleDestroy() {
-    this.running = false;
-  }
+  onModuleDestroy() { this.running = false; }
 
   @Cron(CronExpression.EVERY_2_SECONDS)
   async poll() {
     if (!this.running) return;
+
     const contracts = [
       this.mvx.REGISTRY_CONTRACT,
       this.mvx.ESCROW_CONTRACT,
@@ -42,10 +43,7 @@ export class EventPoller implements OnModuleDestroy {
     ].filter(Boolean);
 
     if (contracts.length === 0) {
-      // No contracts configured — emit synthetic mock event for dev
-      if (process.env.NODE_ENV !== 'production') {
-        this.emitMock();
-      }
+      if (process.env.NODE_ENV !== 'production') this.emitMock();
       return;
     }
 
@@ -53,60 +51,100 @@ export class EventPoller implements OnModuleDestroy {
       const provider = this.mvx.getProvider();
       const networkStatus = await provider.getNetworkStatus();
       const currentNonce = networkStatus.HighestFinalNonce;
-
       if (currentNonce <= this.lastNonce) return;
 
-      // Fetch transactions for each contract since last nonce
       for (const address of contracts) {
         await this.fetchContractEvents(address, this.lastNonce, currentNonce);
       }
 
       this.lastNonce = currentNonce;
     } catch (err) {
-      this.logger.warn(`EventPoller error: ${err.message}`);
+      this.logger.warn(`EventPoller error: ${(err as Error).message}`);
     }
   }
 
   private async fetchContractEvents(
     address: string,
-    fromNonce: number,
-    toNonce: number,
+    _fromNonce: number,
+    _toNonce: number,
   ) {
     try {
+      const network = this.mvx.NETWORK;
       const apiUrl =
-        this.mvx.NETWORK === 'mainnet'
+        network === 'mainnet'
           ? 'https://api.multiversx.com'
-          : `https://${this.mvx.NETWORK}-api.multiversx.com`;
+          : `https://${network}-api.multiversx.com`;
 
       const url = `${apiUrl}/accounts/${address}/transactions?status=success&size=25&order=asc`;
       const res = await fetch(url, { headers: { Accept: 'application/json' } });
       if (!res.ok) return;
 
-      const txs: any[] = await res.json();
+      const txs: Record<string, unknown>[] = await res.json();
 
       for (const tx of txs) {
-        const func = tx.function || '';
+        const func   = (tx['function'] as string) || '';
         const mapped = EVENT_IDENTIFIERS[func] || func;
         if (!mapped) continue;
 
         const event: ChainEvent = {
-          id: tx.txHash || uuidv4(),
-          type: mapped,
-          txHash: tx.txHash,
-          timestamp: tx.timestamp * 1000,
-          blockNonce: tx.round || 0,
+          id:         (tx['txHash'] as string) || uuidv4(),
+          type:       mapped,
+          txHash:     tx['txHash'] as string,
+          timestamp:  (tx['timestamp'] as number) * 1000,
+          blockNonce: (tx['round'] as number) || 0,
           data: {
-            sender: tx.sender,
-            receiver: tx.receiver,
-            value: tx.value || '0',
+            sender:   tx['sender'],
+            receiver: tx['receiver'],
+            value:    tx['value'] || '0',
             function: func,
           },
         };
 
+        // ── Sync task status from on-chain events ──────────
+        if (mapped === 'TaskCompleted') {
+          await this.handleTaskCompleted(tx);
+        }
+
         this.emitter.emit('chain.event', event);
       }
     } catch (err) {
-      this.logger.debug(`fetchContractEvents error for ${address}: ${err.message}`);
+      this.logger.debug(
+        `fetchContractEvents error for ${address}: ${(err as Error).message}`,
+      );
+    }
+  }
+
+  /**
+   * When a TaskCompleted event arrives from the escrow contract,
+   * decode it via SC MCP and sync the local task store.
+   */
+  private async handleTaskCompleted(tx: Record<string, unknown>) {
+    if (!this.mcp.isConnected) return;
+
+    const txHash = tx['txHash'] as string;
+    if (!txHash) return;
+
+    try {
+      const decoded = await this.mcp.decodeTx(txHash);
+      if (!decoded.success || !decoded.data) return;
+
+      const data = decoded.data as Record<string, unknown>;
+      const args = data['args'] as string[] | undefined;
+      if (!args || args.length < 2) return;
+
+      const taskId    = Buffer.from(args[0], 'hex').toString('utf8');
+      const proofHash = Buffer.from(args[1], 'hex').toString('utf8');
+      const latencyMs = parseInt(args[2] ?? '0', 16);
+
+      // Update task in memory with on-chain confirmed data
+      try {
+        this.tasks.complete(taskId, proofHash, latencyMs || 0);
+        this.logger.log(`On-chain sync: task ${taskId} completed (txHash=${txHash})`);
+      } catch {
+        // Task might not be in local store (e.g. from another backend instance)
+      }
+    } catch (err) {
+      this.logger.debug(`handleTaskCompleted decode error: ${(err as Error).message}`);
     }
   }
 
@@ -116,15 +154,17 @@ export class EventPoller implements OnModuleDestroy {
       'ReputationUpdated', 'EscrowReleased',
     ];
     const rnd = (n: number) =>
-      Array.from({ length: n }, () => Math.floor(Math.random() * 16).toString(16)).join('');
+      Array.from({ length: n }, () =>
+        Math.floor(Math.random() * 16).toString(16),
+      ).join('');
     const type = types[Math.floor(Math.random() * types.length)];
     const event: ChainEvent = {
-      id: rnd(8),
+      id:         rnd(8),
       type,
-      txHash: rnd(32),
-      timestamp: Date.now(),
-      blockNonce: Math.floor(Math.random() * 9999999),
-      data: { mock: 'true', source: 'EventPoller' },
+      txHash:     rnd(32),
+      timestamp:  Date.now(),
+      blockNonce: Math.floor(Math.random() * 9_999_999),
+      data:       { mock: 'true', source: 'EventPoller' },
     };
     this.emitter.emit('chain.event', event);
   }

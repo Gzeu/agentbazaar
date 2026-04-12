@@ -1,12 +1,12 @@
 import { Module } from '@nestjs/common';
-import { ServicesController } from './services.controller';
 import { ServicesService } from './services.service';
+import { ServicesController } from './services.controller';
 import { MultiversxModule } from '../multiversx/multiversx.module';
 
 @Module({
-  imports: [MultiversxModule],
-  controllers: [ServicesController],
+  imports:   [MultiversxModule],
   providers: [ServicesService],
-  exports: [ServicesService],
+  controllers: [ServicesController],
+  exports:   [ServicesService],
 })
 export class ServicesModule {}

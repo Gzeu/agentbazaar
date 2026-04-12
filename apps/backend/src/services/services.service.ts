@@ -1,5 +1,11 @@
-import { Injectable, NotFoundException, OnModuleInit, Logger } from '@nestjs/common';
+import {
+  Injectable,
+  NotFoundException,
+  OnModuleInit,
+  Logger,
+} from '@nestjs/common';
 import { v4 as uuidv4 } from 'uuid';
+import { McpContractService } from '../multiversx/mcp-contract.service';
 
 export interface ServiceRecord {
   id: string;
@@ -19,42 +25,47 @@ export interface ServiceRecord {
   mcpCompatible: boolean;
   tags: string[];
   active: boolean;
+  onChain: boolean;  // NEW — true if synced from registry contract
   createdAt: string;
 }
 
-const SEED: Omit<ServiceRecord, 'id' | 'createdAt'>[] = [
+const SEED: Omit<ServiceRecord, 'id' | 'createdAt' | 'onChain'>[] = [
   {
-    name: 'DataFetch Pro',       category: 'data',          description: 'Real-time market data for any token pair. Sub-300ms SLA.',
+    name: 'DataFetch Pro', category: 'data',
+    description: 'Real-time market data for any token pair. Sub-300ms SLA.',
     providerAddress: 'erd1qqqqqqqqqqqqqpgq0000000000000000000000000000000000000001',
-    endpoint: 'https://mock-agent-1.agentbazaar.io/mcp', pricingModel: 'per-call',
-    priceAmount: '1000000000000000', priceToken: 'EGLD',
+    endpoint: 'https://mock-agent-1.agentbazaar.io/mcp',
+    pricingModel: 'per-call', priceAmount: '1000000000000000', priceToken: 'EGLD',
     maxLatencyMs: 300, uptimeGuarantee: 99, reputationScore: 97,
     totalTasks: 412, ucpCompatible: true, mcpCompatible: true,
     tags: ['market', 'realtime', 'json'], active: true,
   },
   {
-    name: 'ML Compute Node',     category: 'compute',       description: 'Distributed GPU inference for LLM and embedding tasks.',
+    name: 'ML Compute Node', category: 'compute',
+    description: 'Distributed GPU inference for LLM and embedding tasks.',
     providerAddress: 'erd1qqqqqqqqqqqqqpgq0000000000000000000000000000000000000002',
-    endpoint: 'https://mock-agent-2.agentbazaar.io/mcp', pricingModel: 'per-call',
-    priceAmount: '5000000000000000', priceToken: 'EGLD',
+    endpoint: 'https://mock-agent-2.agentbazaar.io/mcp',
+    pricingModel: 'per-call', priceAmount: '5000000000000000', priceToken: 'EGLD',
     maxLatencyMs: 800, uptimeGuarantee: 95, reputationScore: 92,
     totalTasks: 189, ucpCompatible: true, mcpCompatible: true,
     tags: ['gpu', 'llm', 'embeddings'], active: true,
   },
   {
-    name: 'EGLD Price Oracle',   category: 'data',          description: 'Signed EGLD/USDC price feed updated every 30s on-chain.',
+    name: 'EGLD Price Oracle', category: 'data',
+    description: 'Signed EGLD/USDC price feed updated every 30s on-chain.',
     providerAddress: 'erd1qqqqqqqqqqqqqpgq0000000000000000000000000000000000000003',
-    endpoint: 'https://mock-agent-3.agentbazaar.io/mcp', pricingModel: 'per-call',
-    priceAmount: '500000000000000',  priceToken: 'EGLD',
+    endpoint: 'https://mock-agent-3.agentbazaar.io/mcp',
+    pricingModel: 'per-call', priceAmount: '500000000000000', priceToken: 'EGLD',
     maxLatencyMs: 100, uptimeGuarantee: 99, reputationScore: 99,
     totalTasks: 3204, ucpCompatible: true, mcpCompatible: false,
     tags: ['oracle', 'price', 'signed'], active: true,
   },
   {
-    name: 'AML Compliance',      category: 'compliance',    description: 'KYT/AML screening for wallet addresses.',
+    name: 'AML Compliance', category: 'compliance',
+    description: 'KYT/AML screening for wallet addresses.',
     providerAddress: 'erd1qqqqqqqqqqqqqpgq0000000000000000000000000000000000000004',
-    endpoint: 'https://mock-agent-4.agentbazaar.io/mcp', pricingModel: 'per-call',
-    priceAmount: '3000000000000000', priceToken: 'EGLD',
+    endpoint: 'https://mock-agent-4.agentbazaar.io/mcp',
+    pricingModel: 'per-call', priceAmount: '3000000000000000', priceToken: 'EGLD',
     maxLatencyMs: 500, uptimeGuarantee: 98, reputationScore: 95,
     totalTasks: 77, ucpCompatible: true, mcpCompatible: true,
     tags: ['compliance', 'kyc', 'aml'], active: true,
@@ -66,12 +77,52 @@ export class ServicesService implements OnModuleInit {
   private readonly logger = new Logger(ServicesService.name);
   private store = new Map<string, ServiceRecord>();
 
-  onModuleInit() {
+  constructor(private readonly contracts: McpContractService) {}
+
+  async onModuleInit() {
+    // Seed in-memory services
     for (const s of SEED) {
       const id = `svc-${uuidv4().slice(0, 8)}`;
-      this.store.set(id, { ...s, id, createdAt: new Date().toISOString() });
+      this.store.set(id, { ...s, id, onChain: false, createdAt: new Date().toISOString() });
     }
-    this.logger.log(`Seeded ${this.store.size} mock services`);
+    this.logger.log(`Seeded ${this.store.size} in-memory services`);
+
+    // Sync on-chain services from registry contract
+    await this.syncFromChain();
+  }
+
+  private async syncFromChain() {
+    try {
+      const onChain = await this.contracts.getAllServices();
+      if (onChain.length === 0) return;
+
+      for (const s of onChain) {
+        this.store.set(s.id, {
+          id:              s.id,
+          name:            s.name,
+          category:        'general',
+          description:     `On-chain: ${s.name}`,
+          providerAddress: s.providerAddress,
+          endpoint:        s.endpoint,
+          pricingModel:    'per-call',
+          priceAmount:     s.priceAmount,
+          priceToken:      s.priceToken,
+          maxLatencyMs:    500,
+          uptimeGuarantee: 99,
+          reputationScore: s.reputationScore,
+          totalTasks:      s.totalTasks,
+          ucpCompatible:   true,
+          mcpCompatible:   true,
+          tags:            ['on-chain'],
+          active:          s.active,
+          onChain:         true,
+          createdAt:       new Date().toISOString(),
+        });
+      }
+      this.logger.log(`Synced ${onChain.length} services from on-chain registry`);
+    } catch (err) {
+      this.logger.warn(`Chain sync failed (using seed data): ${(err as Error).message}`);
+    }
   }
 
   findAll(opts: { category?: string; limit: number }) {
@@ -104,8 +155,9 @@ export class ServicesService implements OnModuleInit {
       totalTasks:       0,
       ucpCompatible:    Boolean(body.ucpCompatible ?? true),
       mcpCompatible:    Boolean(body.mcpCompatible ?? true),
-      tags:             Array.isArray(body.tags) ? body.tags as string[] : [],
+      tags:             Array.isArray(body.tags) ? (body.tags as string[]) : [],
       active:           true,
+      onChain:          false,
       createdAt:        new Date().toISOString(),
     };
     this.store.set(id, record);
