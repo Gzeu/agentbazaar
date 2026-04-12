@@ -9,6 +9,7 @@ import { MultiversxModule } from './multiversx/multiversx.module';
 import { DiscoveryModule } from './discovery/discovery.module';
 import { HealthModule } from './health/health.module';
 import { EventsModule } from './events/events.module';
+import { AnalyticsModule } from './analytics/analytics.module';
 
 @Module({
   imports: [
@@ -22,6 +23,7 @@ import { EventsModule } from './events/events.module';
     DiscoveryModule,
     HealthModule,
     EventsModule,
+    AnalyticsModule,
   ],
 })
 export class AppModule {}

@@ -12,38 +12,35 @@ export class AnalyticsService {
   ) {}
 
   getDashboard() {
-    const allTasks    = this.tasks.findAll({ limit: 10000 }).data;
-    const allServices = this.services.findAll({ limit: 10000 }).data;
-    const leaderboard = this.reputation.getLeaderboard(100);
+    const { tasks: allTasks }       = this.tasks.findAll({ limit: 10_000 });
+    const { services: allServices } = this.services.findAll({ limit: 10_000 });
+    const { leaderboard }           = this.reputation.getLeaderboard(100);
 
-    const completed  = allTasks.filter(t => t.status === 'completed');
-    const failed     = allTasks.filter(t => t.status === 'failed');
-    const running    = allTasks.filter(t => t.status === 'running');
-    const disputed   = allTasks.filter(t => t.status === 'disputed');
-    const pending    = allTasks.filter(t => t.status === 'pending');
+    const completed = allTasks.filter(t => t.status === 'completed');
+    const failed    = allTasks.filter(t => t.status === 'failed');
+    const running   = allTasks.filter(t => t.status === 'running');
+    const disputed  = allTasks.filter(t => t.status === 'disputed');
+    const pending   = allTasks.filter(t => t.status === 'pending');
 
-    const avgLatency = completed.length
-      ? completed.filter(t => t.latencyMs).reduce((s, t) => s + t.latencyMs!, 0)
-        / completed.filter(t => t.latencyMs).length
+    const latencies = completed.filter(t => t.latencyMs != null).map(t => t.latencyMs!);
+    const avgLatency = latencies.length
+      ? latencies.reduce((s, v) => s + v, 0) / latencies.length
       : 0;
 
     const tvlWei = [...running, ...pending].reduce(
       (s, t) => s + BigInt(t.maxBudget ?? '0'), BigInt(0),
     );
 
-    const completionRate = allTasks.length
-      ? completed.length / allTasks.length : 0;
-
     return {
       timestamp: new Date().toISOString(),
       tasks: {
-        total:       allTasks.length,
-        completed:   completed.length,
-        failed:      failed.length,
-        running:     running.length,
-        pending:     pending.length,
-        disputed:    disputed.length,
-        completionRate: +completionRate.toFixed(4),
+        total:          allTasks.length,
+        completed:      completed.length,
+        failed:         failed.length,
+        running:        running.length,
+        pending:        pending.length,
+        disputed:       disputed.length,
+        completionRate: allTasks.length ? +(completed.length / allTasks.length).toFixed(4) : 0,
         avgLatencyMs:   +avgLatency.toFixed(0),
       },
       tvl: {
@@ -55,7 +52,7 @@ export class AnalyticsService {
         active: allServices.filter(s => s.active).length,
       },
       reputation: {
-        totalProviders:  leaderboard.length,
+        totalProviders: leaderboard.length,
         avgScore: leaderboard.length
           ? +(leaderboard.reduce((s, r) => s + r.compositeScore, 0) / leaderboard.length).toFixed(1)
           : 0,
@@ -65,38 +62,45 @@ export class AnalyticsService {
   }
 
   getCategories() {
-    const allServices = this.services.findAll({ limit: 10000 }).data;
-    const allTasks    = this.tasks.findAll({ limit: 10000 }).data;
+    const { services: allServices } = this.services.findAll({ limit: 10_000 });
+    const { tasks: allTasks }       = this.tasks.findAll({ limit: 10_000 });
 
     const serviceMap = new Map(allServices.map(s => [s.id, s.category]));
-    const byCategory: Record<string, { services: number; tasks: number }> = {};
+    const byCategory: Record<string, { services: number; tasks: number; avgReputationScore: number }> = {};
 
     for (const s of allServices) {
-      byCategory[s.category] ??= { services: 0, tasks: 0 };
+      byCategory[s.category] ??= { services: 0, tasks: 0, avgReputationScore: 0 };
       byCategory[s.category].services++;
+      byCategory[s.category].avgReputationScore += s.reputationScore;
+    }
+    // normalize avg
+    for (const cat of Object.keys(byCategory)) {
+      const c = byCategory[cat];
+      c.avgReputationScore = c.services > 0 ? +(c.avgReputationScore / c.services).toFixed(1) : 0;
     }
     for (const t of allTasks) {
       const cat = serviceMap.get(t.serviceId) ?? 'unknown';
-      byCategory[cat] ??= { services: 0, tasks: 0 };
+      byCategory[cat] ??= { services: 0, tasks: 0, avgReputationScore: 0 };
       byCategory[cat].tasks++;
     }
     return { categories: byCategory, timestamp: new Date().toISOString() };
   }
 
   getVolume(days = 7) {
-    const allTasks = this.tasks.findAll({ limit: 10000 }).data;
-    const result: Record<string, { tasks: number; completed: number; volumeEgld: number }> = {};
+    const { tasks: allTasks } = this.tasks.findAll({ limit: 10_000 });
+    const result: Record<string, { tasks: number; completed: number; failed: number; volumeEgld: number }> = {};
     const now = Date.now();
 
-    for (let i = 0; i < days; i++) {
-      const d = new Date(now - i * 86400000).toISOString().slice(0, 10);
-      result[d] = { tasks: 0, completed: 0, volumeEgld: 0 };
+    for (let i = days - 1; i >= 0; i--) {
+      const d = new Date(now - i * 86_400_000).toISOString().slice(0, 10);
+      result[d] = { tasks: 0, completed: 0, failed: 0, volumeEgld: 0 };
     }
     for (const t of allTasks) {
       const d = t.createdAt.slice(0, 10);
       if (result[d]) {
         result[d].tasks++;
         if (t.status === 'completed') result[d].completed++;
+        if (t.status === 'failed')    result[d].failed++;
         result[d].volumeEgld += Number(t.maxBudget ?? 0) / 1e18;
       }
     }
@@ -104,7 +108,7 @@ export class AnalyticsService {
       days,
       series: Object.entries(result)
         .sort(([a], [b]) => a.localeCompare(b))
-        .map(([date, v]) => ({ date, ...v })),
+        .map(([date, v]) => ({ date, ...v, volumeEgld: +v.volumeEgld.toFixed(6) })),
     };
   }
 }
