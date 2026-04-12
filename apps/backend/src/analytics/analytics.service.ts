@@ -1,6 +1,6 @@
 import { Injectable } from '@nestjs/common';
-import { TasksService } from '../tasks/tasks.service';
-import { ServicesService } from '../services/services.service';
+import { TasksService }      from '../tasks/tasks.service';
+import { ServicesService }   from '../services/services.service';
 import { ReputationService } from '../reputation/reputation.service';
 
 @Injectable()
@@ -12,37 +12,36 @@ export class AnalyticsService {
   ) {}
 
   getDashboard() {
-    const allTasks    = this.tasks.findAll({ limit: 10000 }).data;
-    const allServices = this.services.findAll({ limit: 10000 }).data;
-    const leaderboard = this.reputation.getLeaderboard(100);
+    const { tasks: allTasks }       = this.tasks.findAll({ limit: 10_000 });
+    const { services: allServices } = this.services.findAll({ limit: 10_000 });
+    const { leaderboard }           = this.reputation.getLeaderboard(100);
 
-    const completed  = allTasks.filter(t => t.status === 'completed');
-    const failed     = allTasks.filter(t => t.status === 'failed');
-    const running    = allTasks.filter(t => t.status === 'running');
-    const disputed   = allTasks.filter(t => t.status === 'disputed');
-    const pending    = allTasks.filter(t => t.status === 'pending');
+    const completed = allTasks.filter(t => t.status === 'completed');
+    const failed    = allTasks.filter(t => t.status === 'failed');
+    const running   = allTasks.filter(t => t.status === 'running');
+    const disputed  = allTasks.filter(t => t.status === 'disputed');
+    const pending   = allTasks.filter(t => t.status === 'pending');
 
-    const avgLatency = completed.length
-      ? completed.filter(t => t.latencyMs).reduce((s, t) => s + t.latencyMs!, 0)
-        / completed.filter(t => t.latencyMs).length
+    const withLatency = completed.filter(t => t.latencyMs != null);
+    const avgLatency  = withLatency.length
+      ? withLatency.reduce((s, t) => s + t.latencyMs!, 0) / withLatency.length
       : 0;
 
     const tvlWei = [...running, ...pending].reduce(
       (s, t) => s + BigInt(t.maxBudget ?? '0'), BigInt(0),
     );
 
-    const completionRate = allTasks.length
-      ? completed.length / allTasks.length : 0;
+    const completionRate = allTasks.length ? completed.length / allTasks.length : 0;
 
     return {
       timestamp: new Date().toISOString(),
       tasks: {
-        total:       allTasks.length,
-        completed:   completed.length,
-        failed:      failed.length,
-        running:     running.length,
-        pending:     pending.length,
-        disputed:    disputed.length,
+        total:          allTasks.length,
+        completed:      completed.length,
+        failed:         failed.length,
+        running:        running.length,
+        pending:        pending.length,
+        disputed:       disputed.length,
         completionRate: +completionRate.toFixed(4),
         avgLatencyMs:   +avgLatency.toFixed(0),
       },
@@ -55,7 +54,7 @@ export class AnalyticsService {
         active: allServices.filter(s => s.active).length,
       },
       reputation: {
-        totalProviders:  leaderboard.length,
+        totalProviders: leaderboard.length,
         avgScore: leaderboard.length
           ? +(leaderboard.reduce((s, r) => s + r.compositeScore, 0) / leaderboard.length).toFixed(1)
           : 0,
@@ -65,8 +64,8 @@ export class AnalyticsService {
   }
 
   getCategories() {
-    const allServices = this.services.findAll({ limit: 10000 }).data;
-    const allTasks    = this.tasks.findAll({ limit: 10000 }).data;
+    const { services: allServices } = this.services.findAll({ limit: 10_000 });
+    const { tasks: allTasks }       = this.tasks.findAll({ limit: 10_000 });
 
     const serviceMap = new Map(allServices.map(s => [s.id, s.category]));
     const byCategory: Record<string, { services: number; tasks: number }> = {};
@@ -84,12 +83,12 @@ export class AnalyticsService {
   }
 
   getVolume(days = 7) {
-    const allTasks = this.tasks.findAll({ limit: 10000 }).data;
+    const { tasks: allTasks } = this.tasks.findAll({ limit: 10_000 });
     const result: Record<string, { tasks: number; completed: number; volumeEgld: number }> = {};
     const now = Date.now();
 
     for (let i = 0; i < days; i++) {
-      const d = new Date(now - i * 86400000).toISOString().slice(0, 10);
+      const d = new Date(now - i * 86_400_000).toISOString().slice(0, 10);
       result[d] = { tasks: 0, completed: 0, volumeEgld: 0 };
     }
     for (const t of allTasks) {

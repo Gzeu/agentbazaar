@@ -1,28 +1,34 @@
 'use client';
 
 import Link from 'next/link';
-import { MOCK_SERVICES } from '@/lib/mock-data';
-import { useTasks, type TaskFilter } from '@/hooks/useTasks';
+import { useTasks } from '@/hooks/useTasks';
+import { useServices } from '@/hooks/useServices';
+import type { TaskFilter } from '@/lib/types';
 
+// All statuses the backend can return — keep in sync with types.ts TaskStatus
 const STATUS_COLORS: Record<string, string> = {
-  pending: 'text-amber-400 bg-amber-500/10 border-amber-500/20',
-  quoted: 'text-blue-400 bg-blue-500/10 border-blue-500/20',
-  paid: 'text-brand-400 bg-brand-500/10 border-brand-500/20',
-  running: 'text-purple-400 bg-purple-500/10 border-purple-500/20 animate-pulse',
-  completed: 'text-emerald-400 bg-emerald-500/10 border-emerald-500/20',
-  failed: 'text-red-400 bg-red-500/10 border-red-500/20',
+  pending:  'text-amber-400   bg-amber-500/10   border-amber-500/20',
+  running:  'text-purple-400  bg-purple-500/10  border-purple-500/20 animate-pulse',
+  completed:'text-emerald-400 bg-emerald-500/10 border-emerald-500/20',
+  failed:   'text-red-400     bg-red-500/10     border-red-500/20',
+  disputed: 'text-orange-400  bg-orange-500/10  border-orange-500/20',
+  refunded: 'text-blue-400    bg-blue-500/10    border-blue-500/20',
 };
 
 const FILTERS: { value: TaskFilter; label: string }[] = [
-  { value: 'all', label: 'Toate' },
-  { value: 'pending', label: 'Pending' },
-  { value: 'running', label: 'Running' },
+  { value: 'all',       label: 'Toate' },
+  { value: 'pending',   label: 'Pending' },
+  { value: 'running',   label: 'Running' },
   { value: 'completed', label: 'Completed' },
-  { value: 'failed', label: 'Failed' },
+  { value: 'failed',    label: 'Failed' },
+  { value: 'disputed',  label: 'Disputed' },
+  { value: 'refunded',  label: 'Refunded' },
 ];
 
 export default function TasksPage() {
-  const { tasks, filter, setFilter, stats } = useTasks();
+  const { tasks, filter, setFilter, stats, loading, error } = useTasks();
+  // use live services for name lookup — falls back to mock automatically
+  const { services } = useServices();
 
   return (
     <div className="max-w-5xl mx-auto px-4 sm:px-6 lg:px-8 py-10 animate-fade-in">
@@ -32,14 +38,22 @@ export default function TasksPage() {
         <p className="text-dark-muted text-sm">Execuții on-chain ale serviciilor agentice</p>
       </div>
 
-      {/* Stats row */}
-      <div className="grid grid-cols-2 sm:grid-cols-5 gap-3 mb-6">
+      {error && (
+        <div className="text-xs text-amber-400 bg-amber-500/10 border border-amber-500/20 rounded-lg px-3 py-2 mb-4 font-mono">
+          ⚠ {error}
+        </div>
+      )}
+
+      {/* Stats row — all 7 statuses */}
+      <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-7 gap-3 mb-6">
         {[
-          { label: 'Total', val: stats.total, color: 'text-dark-text' },
-          { label: 'Pending', val: stats.pending, color: 'text-amber-400' },
-          { label: 'Running', val: stats.running, color: 'text-purple-400' },
+          { label: 'Total',     val: stats.total,     color: 'text-dark-text' },
+          { label: 'Pending',   val: stats.pending,   color: 'text-amber-400' },
+          { label: 'Running',   val: stats.running,   color: 'text-purple-400' },
           { label: 'Completed', val: stats.completed, color: 'text-emerald-400' },
-          { label: 'Failed', val: stats.failed, color: 'text-red-400' },
+          { label: 'Failed',    val: stats.failed,    color: 'text-red-400' },
+          { label: 'Disputed',  val: stats.disputed,  color: 'text-orange-400' },
+          { label: 'Refunded',  val: stats.refunded,  color: 'text-blue-400' },
         ].map(({ label, val, color }) => (
           <div key={label} className="stat-card text-center">
             <p className={`text-xl font-bold font-mono ${color}`}>{val}</p>
@@ -47,6 +61,11 @@ export default function TasksPage() {
           </div>
         ))}
       </div>
+
+      {/* Avg latency pill */}
+      <p className="text-xs text-dark-muted mb-5 font-mono">
+        Latență medie: <span className="text-emerald-400">{stats.avgLatency}ms</span>
+      </p>
 
       {/* Filters */}
       <div className="flex flex-wrap gap-2 mb-6">
@@ -64,7 +83,12 @@ export default function TasksPage() {
       </div>
 
       {/* Task list */}
-      {tasks.length === 0 ? (
+      {loading ? (
+        <div className="flex flex-col items-center gap-3 py-20 text-dark-muted">
+          <span className="w-8 h-8 border-2 border-brand-500 border-t-transparent rounded-full animate-spin" />
+          <p className="text-sm">Se încarcă task-urile...</p>
+        </div>
+      ) : tasks.length === 0 ? (
         <div className="flex flex-col items-center gap-3 py-20 text-dark-muted">
           <span className="text-4xl">⚡</span>
           <p className="text-sm">Niciun task pentru filtrul selectat</p>
@@ -72,15 +96,21 @@ export default function TasksPage() {
       ) : (
         <div className="space-y-3">
           {tasks.map(task => {
-            const svc = MOCK_SERVICES.find(s => s.id === task.serviceId);
+            const svc = services.find(s => s.id === task.serviceId);
             return (
-              <Link key={task.id} href={`/tasks/${task.id}`} className="card flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 hover:border-brand-500/30 transition-all group">
+              <Link key={task.id} href={`/tasks/${task.id}`}
+                className="card flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 hover:border-brand-500/30 transition-all group"
+              >
                 <div className="flex-1 min-w-0">
                   <div className="flex items-center gap-2 mb-1">
-                    <span className={`badge border text-xs ${STATUS_COLORS[task.status]}`}>{task.status}</span>
+                    <span className={`badge border text-xs ${STATUS_COLORS[task.status] ?? 'text-dark-muted bg-dark-surface2 border-dark-border'}`}>
+                      {task.status}
+                    </span>
                     <span className="text-xs font-mono text-dark-muted">{task.id}</span>
                   </div>
-                  <p className="font-semibold text-dark-text group-hover:text-brand-400 transition-colors">{svc?.name ?? task.serviceId}</p>
+                  <p className="font-semibold text-dark-text group-hover:text-brand-400 transition-colors">
+                    {svc?.name ?? task.serviceId}
+                  </p>
                   <p className="text-xs text-dark-muted mt-0.5">{new Date(task.createdAt).toLocaleString('ro-RO')}</p>
                 </div>
                 <div className="flex items-center gap-4 text-right">
@@ -88,7 +118,7 @@ export default function TasksPage() {
                     <p className="text-xs text-dark-muted">Budget</p>
                     <p className="text-sm font-mono text-dark-text">{task.maxBudget} EGLD</p>
                   </div>
-                  {task.latencyMs && (
+                  {task.latencyMs != null && (
                     <div>
                       <p className="text-xs text-dark-muted">Latență</p>
                       <p className="text-sm font-mono text-emerald-400">{task.latencyMs}ms</p>

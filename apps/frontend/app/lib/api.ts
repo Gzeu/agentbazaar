@@ -4,63 +4,71 @@ const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001';
 
 export const api = axios.create({
   baseURL: API_URL,
-  timeout: 15000,
+  timeout: 15_000,
   headers: { 'Content-Type': 'application/json' },
 });
 
-// --- Services ---
+// ── Services ───────────────────────────────────────────────────────────────
 export const servicesApi = {
-  list: (filters?: Record<string, unknown>) =>
-    api.get('/api/v1/services', { params: filters }).then((r) => r.data),
+  /** GET /api/v1/services?limit=&category= */
+  list: (params?: { limit?: number; category?: string }) =>
+    api.get('/api/v1/services', { params }).then(r => r.data as { services: unknown[]; total: number }),
 
+  /** GET /api/v1/services/:id */
   get: (id: string) =>
-    api.get(`/api/v1/services/${id}`).then((r) => r.data),
+    api.get(`/api/v1/services/${id}`).then(r => r.data),
 
+  /** POST /api/v1/services */
   register: (data: unknown) =>
-    api.post('/api/v1/services/register', data).then((r) => r.data),
-
-  update: (id: string, data: unknown) =>
-    api.put(`/api/v1/services/${id}`, data).then((r) => r.data),
-
-  deregister: (id: string) =>
-    api.delete(`/api/v1/services/${id}`).then((r) => r.data),
-
-  quote: (id: string) =>
-    api.get(`/api/v1/services/${id}/quote`).then((r) => r.data),
+    api.post('/api/v1/services', data).then(r => r.data),
 };
 
-// --- Discovery ---
-export const discoveryApi = {
-  discover: (params: Record<string, unknown>) =>
-    api.get('/api/v1/discover', { params }).then((r) => r.data),
-
-  categories: () =>
-    api.get('/api/v1/discover/categories').then((r) => r.data),
-};
-
-// --- Tasks ---
+// ── Tasks ──────────────────────────────────────────────────────────────────
 export const tasksApi = {
-  submit: (data: unknown) =>
-    api.post('/api/v1/tasks', data).then((r) => r.data),
+  /** GET /api/v1/tasks?limit=&status= */
+  list: (params?: { limit?: number; status?: string }) =>
+    api.get('/api/v1/tasks', { params }).then(r => r.data as { tasks: unknown[]; total: number }),
 
+  /** GET /api/v1/tasks/:id */
   get: (id: string) =>
-    api.get(`/api/v1/tasks/${id}`).then((r) => r.data),
+    api.get(`/api/v1/tasks/${id}`).then(r => r.data),
 
-  submitProof: (id: string, data: unknown) =>
-    api.post(`/api/v1/tasks/${id}/proof`, data).then((r) => r.data),
+  /** POST /api/v1/tasks */
+  submit: (data: unknown) =>
+    api.post('/api/v1/tasks', data).then(r => r.data),
 
-  byConsumer: (address: string) =>
-    api.get(`/api/v1/tasks/consumer/${address}`).then((r) => r.data),
-
-  byProvider: (address: string) =>
-    api.get(`/api/v1/tasks/provider/${address}`).then((r) => r.data),
+  /** POST /api/v1/tasks/:id/complete */
+  complete: (id: string, data: { proofHash: string; latencyMs: number }) =>
+    api.post(`/api/v1/tasks/${id}/complete`, data).then(r => r.data),
 };
 
-// --- Reputation ---
+// ── Reputation ─────────────────────────────────────────────────────────────
 export const reputationApi = {
-  get: (address: string) =>
-    api.get(`/api/v1/reputation/${address}`).then((r) => r.data),
+  /** GET /api/v1/reputation/leaderboard?limit= */
+  leaderboard: (limit = 20) =>
+    api.get('/api/v1/reputation/leaderboard', { params: { limit } }).then(r => r.data),
 
-  history: (address: string) =>
-    api.get(`/api/v1/reputation/${address}/history`).then((r) => r.data),
+  /** GET /api/v1/reputation/:address */
+  get: (address: string) =>
+    api.get(`/api/v1/reputation/${address}`).then(r => r.data),
+};
+
+// ── Analytics ──────────────────────────────────────────────────────────────
+export const analyticsApi = {
+  /** GET /api/v1/analytics */
+  getDashboard: () =>
+    api.get('/api/v1/analytics').then(r => r.data),
+
+  /** GET /api/v1/analytics/categories */
+  getCategories: () =>
+    api.get('/api/v1/analytics/categories').then(r => r.data),
+
+  /** GET /api/v1/analytics/volume?days= */
+  getVolume: (days = 7) =>
+    api.get('/api/v1/analytics/volume', { params: { days } }).then(r => r.data),
+};
+
+// ── Health ─────────────────────────────────────────────────────────────────
+export const healthApi = {
+  check: () => api.get('/api/v1/health').then(r => r.data),
 };

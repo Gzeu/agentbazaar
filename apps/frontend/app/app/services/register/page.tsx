@@ -2,48 +2,90 @@
 
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
+import { servicesApi } from '@/lib/api';
+import { useWallet } from '@/hooks/useWallet';
 import type { ServiceCategory } from '@/lib/types';
 
+// Category slugs aligned to backend enum
 const CATEGORIES: { value: ServiceCategory; label: string }[] = [
-  { value: 'data-fetching',   label: 'Data Fetching' },
-  { value: 'compute-offload', label: 'Compute Offload' },
-  { value: 'wallet-actions',  label: 'Wallet Actions' },
-  { value: 'compliance',      label: 'Compliance' },
-  { value: 'enrichment',      label: 'Enrichment' },
-  { value: 'orchestration',   label: 'Orchestration' },
-  { value: 'notifications',   label: 'Notifications' },
+  { value: 'data',           label: 'Data' },
+  { value: 'compute',        label: 'Compute' },
+  { value: 'wallet-actions', label: 'Wallet Actions' },
+  { value: 'compliance',     label: 'Compliance' },
+  { value: 'enrichment',     label: 'Enrichment' },
+  { value: 'orchestration',  label: 'Orchestration' },
+  { value: 'notifications',  label: 'Notifications' },
 ];
 
 const PRICING_MODELS = ['per-request', 'per-token', 'per-second', 'per-workflow', 'per-action', 'subscription'];
 
 export default function RegisterServicePage() {
   const router = useRouter();
-  const [step, setStep] = useState<1 | 2 | 3>(1);
+  const { connected, address, signAndSend } = useWallet();
+
+  const [step, setStep]           = useState<1 | 2 | 3>(1);
   const [submitting, setSubmitting] = useState(false);
-  const [done, setDone] = useState(false);
+  const [done, setDone]           = useState(false);
+  const [txHash, setTxHash]       = useState<string | null>(null);
+  const [submitError, setSubmitError] = useState<string | null>(null);
 
   const [form, setForm] = useState({
-    name: '',
-    description: '',
-    category: 'data-fetching' as ServiceCategory,
-    version: '1.0.0',
-    endpoint: '',
-    pricingModel: 'per-request',
-    priceAmount: '',
-    priceToken: 'EGLD',
-    maxLatencyMs: '500',
-    uptimeGuarantee: '9900',
-    ucpCompatible: true,
-    mcpCompatible: false,
-    tags: '',
-    stakeAmount: '0.1',
+    name:             '',
+    description:      '',
+    category:         'data' as ServiceCategory,
+    version:          '1.0.0',
+    endpoint:         '',
+    pricingModel:     'per-request',
+    priceAmount:      '',
+    priceToken:       'EGLD',
+    maxLatencyMs:     '500',
+    uptimeGuarantee:  '9900',
+    ucpCompatible:    true,
+    mcpCompatible:    false,
+    tags:             '',
+    stakeAmount:      '0.1',
   });
 
   const set = (k: string, v: string | boolean) => setForm(f => ({ ...f, [k]: v }));
 
-  const handleSubmit = () => {
+  const handleSubmit = async () => {
     setSubmitting(true);
-    setTimeout(() => { setSubmitting(false); setDone(true); }, 2000);
+    setSubmitError(null);
+    try {
+      // 1. Sign stake TX via wallet
+      const hash = await signAndSend({
+        receiver: 'erd1qqqqqqqqqqqqqpgq5l6s5jqwjgmr3yrk9gg73xwetcq8spnz0n4sqme3z9', // registry SC
+        value:    form.stakeAmount,
+        data:     `registerService@${Buffer.from(form.name).toString('hex')}`,
+        gasLimit: 6_000_000,
+      });
+      setTxHash(hash);
+
+      // 2. POST service to backend (non-blocking if TX confirmed)
+      await servicesApi.register({
+        name:            form.name,
+        description:     form.description,
+        category:        form.category,
+        endpoint:        form.endpoint,
+        pricingModel:    form.pricingModel,
+        priceAmount:     form.priceAmount,
+        priceToken:      form.priceToken,
+        maxLatencyMs:    parseInt(form.maxLatencyMs),
+        uptimeGuarantee: parseInt(form.uptimeGuarantee),
+        ucpCompatible:   form.ucpCompatible,
+        mcpCompatible:   form.mcpCompatible,
+        tags:            form.tags.split(',').map(t => t.trim()).filter(Boolean),
+        providerAddress: address ?? '',
+        stakeAmount:     form.stakeAmount,
+        registryTxHash:  hash,
+      });
+
+      setDone(true);
+    } catch (e: any) {
+      setSubmitError(e?.response?.data?.message ?? e?.message ?? 'Eroare necunoscută');
+    } finally {
+      setSubmitting(false);
+    }
   };
 
   if (done) {
@@ -54,10 +96,13 @@ export default function RegisterServicePage() {
         </div>
         <h1 className="text-2xl font-bold text-dark-text mb-2">Serviciu înregistrat!</h1>
         <p className="text-dark-muted mb-2">Contractul Registry a înregistrat serviciul pe MultiversX Supernova.</p>
-        <p className="text-xs font-mono text-brand-400 mb-8">TX confirmat în &lt; 1 secundă</p>
+        {txHash && (
+          <p className="text-xs font-mono text-brand-400 mb-2 truncate">TX: {txHash}</p>
+        )}
+        <p className="text-xs text-dark-muted mb-8">TX confirmat în &lt; 1 secundă</p>
         <div className="flex gap-3 justify-center">
           <button className="btn-primary" onClick={() => router.push('/services')}>Vezi Marketplace</button>
-          <button className="btn-secondary" onClick={() => { setDone(false); setStep(1); }}>Mai adaugă</button>
+          <button className="btn-secondary" onClick={() => { setDone(false); setStep(1); setTxHash(null); }}>Mai adaugă</button>
         </div>
       </div>
     );
@@ -65,13 +110,17 @@ export default function RegisterServicePage() {
 
   return (
     <div className="max-w-2xl mx-auto px-4 py-10 animate-fade-in">
-      {/* Header */}
       <div className="mb-8">
         <h1 className="text-2xl font-bold text-dark-text mb-1">Înregistrează Serviciu</h1>
         <p className="text-dark-muted text-sm">Publică un serviciu pe AgentBazaar • Registry Contract on-chain</p>
+        {!connected && (
+          <div className="mt-3 text-xs text-amber-400 bg-amber-500/10 border border-amber-500/20 rounded-lg px-3 py-2 font-mono">
+            ⚠ Conectează wallet-ul pentru a putea înregistra un serviciu
+          </div>
+        )}
       </div>
 
-      {/* Steps */}
+      {/* Steps indicator */}
       <div className="flex items-center gap-2 mb-8">
         {[1, 2, 3].map((s) => (
           <div key={s} className="flex items-center gap-2 flex-1">
@@ -88,7 +137,7 @@ export default function RegisterServicePage() {
         ))}
       </div>
 
-      {/* Step 1 — Basic Info */}
+      {/* Step 1 */}
       {step === 1 && (
         <div className="space-y-5 animate-fade-in">
           <div>
@@ -119,7 +168,7 @@ export default function RegisterServicePage() {
         </div>
       )}
 
-      {/* Step 2 — Technical */}
+      {/* Step 2 */}
       {step === 2 && (
         <div className="space-y-5 animate-fade-in">
           <div>
@@ -166,7 +215,7 @@ export default function RegisterServicePage() {
         </div>
       )}
 
-      {/* Step 3 — Stake & Submit */}
+      {/* Step 3 */}
       {step === 3 && (
         <div className="space-y-5 animate-fade-in">
           <div className="bg-amber-500/10 border border-amber-500/20 rounded-xl p-4">
@@ -178,16 +227,16 @@ export default function RegisterServicePage() {
             <input className="input" type="number" step="0.01" value={form.stakeAmount} onChange={e => set('stakeAmount', e.target.value)} />
           </div>
 
-          {/* Summary */}
           <div className="bg-dark-surface2 rounded-xl p-4 space-y-2">
             <p className="text-xs text-dark-muted uppercase tracking-wider mb-3">Rezumat</p>
             {[
-              ['Serviciu', form.name],
-              ['Categorie', form.category],
-              ['Endpoint', form.endpoint],
-              ['Preț', `${form.priceAmount} EGLD / ${form.pricingModel}`],
-              ['Latență Max', `${form.maxLatencyMs}ms`],
-              ['Stake', `${form.stakeAmount} EGLD`],
+              ['Serviciu',   form.name],
+              ['Categorie',  form.category],
+              ['Endpoint',   form.endpoint],
+              ['Preț',       `${form.priceAmount} EGLD / ${form.pricingModel}`],
+              ['Latență Max',`${form.maxLatencyMs}ms`],
+              ['Stake',      `${form.stakeAmount} EGLD`],
+              ['Provider',   address ?? '(wallet neconectat)'],
             ].map(([k, v]) => (
               <div key={k} className="flex justify-between text-sm">
                 <span className="text-dark-muted">{k}</span>
@@ -196,12 +245,19 @@ export default function RegisterServicePage() {
             ))}
           </div>
 
+          {submitError && (
+            <div className="text-xs text-red-400 bg-red-500/10 border border-red-500/20 rounded-lg px-3 py-2 font-mono">
+              ✗ {submitError}
+            </div>
+          )}
+
           <div className="flex gap-3">
             <button className="btn-secondary" onClick={() => setStep(2)}>← Înapoi</button>
             <button
               className="btn-primary flex-1 justify-center"
               onClick={handleSubmit}
-              disabled={submitting}
+              disabled={submitting || !connected}
+              title={!connected ? 'Conectează wallet-ul mai întâi' : undefined}
             >
               {submitting ? (
                 <><span className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" /> Procesare...</>

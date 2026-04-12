@@ -2,19 +2,19 @@ import { Injectable, Logger, OnModuleDestroy } from '@nestjs/common';
 import { Cron, CronExpression } from '@nestjs/schedule';
 import { EventEmitter2 } from '@nestjs/event-emitter';
 import { MultiversxService } from '../multiversx/multiversx.service';
-import { ChainEvent } from './events.gateway';
+import { EventsGateway } from './events.gateway';
+import { ChainEvent } from './chain-event.types';
 import { v4 as uuidv4 } from 'uuid';
 
-// Known event identifiers in MultiversX log topics (hex encoded first topic = event name)
 const EVENT_IDENTIFIERS: Record<string, string> = {
   serviceRegistered: 'ServiceRegistered',
-  taskCreated: 'TaskCreated',
-  taskCompleted: 'TaskCompleted',
-  taskRefunded: 'TaskRefunded',
-  disputeOpened: 'TaskDisputed',
-  disputeResolved: 'TaskDisputed',
-  scoreUpdated: 'ReputationUpdated',
-  agentSlashed: 'ReputationUpdated',
+  taskCreated:       'TaskCreated',
+  taskCompleted:     'TaskCompleted',
+  taskRefunded:      'TaskRefunded',
+  disputeOpened:     'TaskDisputed',
+  disputeResolved:   'TaskDisputed',
+  scoreUpdated:      'ReputationUpdated',
+  agentSlashed:      'ReputationUpdated',
 };
 
 @Injectable()
@@ -24,8 +24,9 @@ export class EventPoller implements OnModuleDestroy {
   private running = true;
 
   constructor(
-    private readonly mvx: MultiversxService,
+    private readonly mvx:     MultiversxService,
     private readonly emitter: EventEmitter2,
+    private readonly gateway: EventsGateway,
   ) {}
 
   onModuleDestroy() {
@@ -35,6 +36,7 @@ export class EventPoller implements OnModuleDestroy {
   @Cron(CronExpression.EVERY_2_SECONDS)
   async poll() {
     if (!this.running) return;
+
     const contracts = [
       this.mvx.REGISTRY_CONTRACT,
       this.mvx.ESCROW_CONTRACT,
@@ -42,10 +44,7 @@ export class EventPoller implements OnModuleDestroy {
     ].filter(Boolean);
 
     if (contracts.length === 0) {
-      // No contracts configured — emit synthetic mock event for dev
-      if (process.env.NODE_ENV !== 'production') {
-        this.emitMock();
-      }
+      if (process.env.NODE_ENV !== 'production') this.emitMock();
       return;
     }
 
@@ -53,60 +52,54 @@ export class EventPoller implements OnModuleDestroy {
       const provider = this.mvx.getProvider();
       const networkStatus = await provider.getNetworkStatus();
       const currentNonce = networkStatus.HighestFinalNonce;
-
       if (currentNonce <= this.lastNonce) return;
 
-      // Fetch transactions for each contract since last nonce
       for (const address of contracts) {
-        await this.fetchContractEvents(address, this.lastNonce, currentNonce);
+        await this.fetchContractEvents(address);
       }
-
       this.lastNonce = currentNonce;
     } catch (err) {
-      this.logger.warn(`EventPoller error: ${err.message}`);
+      this.logger.warn(`EventPoller error: ${(err as Error).message}`);
     }
   }
 
-  private async fetchContractEvents(
-    address: string,
-    fromNonce: number,
-    toNonce: number,
-  ) {
+  private async fetchContractEvents(address: string) {
     try {
-      const apiUrl =
-        this.mvx.NETWORK === 'mainnet'
-          ? 'https://api.multiversx.com'
-          : `https://${this.mvx.NETWORK}-api.multiversx.com`;
+      const apiUrl = this.mvx.NETWORK === 'mainnet'
+        ? 'https://api.multiversx.com'
+        : `https://${this.mvx.NETWORK}-api.multiversx.com`;
 
-      const url = `${apiUrl}/accounts/${address}/transactions?status=success&size=25&order=asc`;
-      const res = await fetch(url, { headers: { Accept: 'application/json' } });
+      const res = await fetch(
+        `${apiUrl}/accounts/${address}/transactions?status=success&size=25&order=asc`,
+        { headers: { Accept: 'application/json' } },
+      );
       if (!res.ok) return;
 
-      const txs: any[] = await res.json();
-
+      const txs: Record<string, unknown>[] = await res.json();
       for (const tx of txs) {
-        const func = tx.function || '';
-        const mapped = EVENT_IDENTIFIERS[func] || func;
+        const func   = String(tx['function'] ?? '');
+        const mapped = EVENT_IDENTIFIERS[func] ?? func;
         if (!mapped) continue;
 
         const event: ChainEvent = {
-          id: tx.txHash || uuidv4(),
-          type: mapped,
-          txHash: tx.txHash,
-          timestamp: tx.timestamp * 1000,
-          blockNonce: tx.round || 0,
+          id:         String(tx['txHash'] ?? uuidv4()),
+          type:       mapped,
+          txHash:     tx['txHash'] as string | undefined,
+          timestamp:  Number(tx['timestamp'] ?? 0) * 1000,
+          blockNonce: Number(tx['round'] ?? 0),
           data: {
-            sender: tx.sender,
-            receiver: tx.receiver,
-            value: tx.value || '0',
+            sender:   tx['sender'],
+            receiver: tx['receiver'],
+            value:    tx['value'] ?? '0',
             function: func,
           },
         };
 
+        this.gateway.broadcastChainEvent(event);
         this.emitter.emit('chain.event', event);
       }
     } catch (err) {
-      this.logger.debug(`fetchContractEvents error for ${address}: ${err.message}`);
+      this.logger.debug(`fetchContractEvents error for ${address}: ${(err as Error).message}`);
     }
   }
 
@@ -117,15 +110,15 @@ export class EventPoller implements OnModuleDestroy {
     ];
     const rnd = (n: number) =>
       Array.from({ length: n }, () => Math.floor(Math.random() * 16).toString(16)).join('');
-    const type = types[Math.floor(Math.random() * types.length)];
     const event: ChainEvent = {
-      id: rnd(8),
-      type,
-      txHash: rnd(32),
-      timestamp: Date.now(),
-      blockNonce: Math.floor(Math.random() * 9999999),
-      data: { mock: 'true', source: 'EventPoller' },
+      id:         rnd(8),
+      type:       types[Math.floor(Math.random() * types.length)],
+      txHash:     rnd(32),
+      timestamp:  Date.now(),
+      blockNonce: Math.floor(Math.random() * 9_999_999),
+      data:       { mock: 'true', source: 'EventPoller' },
     };
+    this.gateway.broadcastChainEvent(event);
     this.emitter.emit('chain.event', event);
   }
 }

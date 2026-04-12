@@ -35,6 +35,32 @@ body {
   box-shadow: 0 0 24px rgba(13, 148, 136, 0.2);
 }
 
+/* hide scrollbar on mobile nav */
+.scrollbar-none {
+  scrollbar-width: none;
+}
+.scrollbar-none::-webkit-scrollbar {
+  display: none;
+}
+
+/* MCP status bar slide-in */
+@keyframes mcp-slide-down {
+  from { transform: translateY(-100%); opacity: 0; }
+  to   { transform: translateY(0);     opacity: 1; }
+}
+.mcp-bar-enter {
+  animation: mcp-slide-down 0.35s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+}
+
+/* task/status badge pulse */
+@keyframes badge-pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.6; }
+}
+.badge-running {
+  animation: badge-pulse 1.8s ease-in-out infinite;
+}
+
 ::-webkit-scrollbar { width: 6px; }
 ::-webkit-scrollbar-track { background: var(--bg); }
 ::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
