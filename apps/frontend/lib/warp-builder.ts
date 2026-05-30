@@ -11,7 +11,7 @@ export const AGENTBAZAAR_CONTRACTS = {
   dao:      process.env.NEXT_PUBLIC_DAO_CONTRACT      ?? 'erd1qqqqqqqqqqqqqpgq0000000000000000000000000000000dao',
 } as const;
 
-export const WARP_PROTOCOL = 'warp:1.0';
+export const WARP_PROTOCOL = 'warp:3.0';
 export const WARP_CHAIN = 'multiversx';
 const BASE_URL = process.env.NEXT_PUBLIC_APP_URL ?? 'https://agentbazaar.vercel.app';
 const MCP_URL  = process.env.NEXT_PUBLIC_MCP_URL  ?? 'https://api.agentbazaar.xyz/mcp';

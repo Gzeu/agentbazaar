@@ -8,6 +8,13 @@ node_modules/
 dist/
 *.js.map
 
+# Next.js build output — never commit
+.next/
+out/
+
+# Temporary / dev artefacts
+temp-frontend/
+
 # Wallets — NEVER commit private keys
 *.pem
 *.keystore
