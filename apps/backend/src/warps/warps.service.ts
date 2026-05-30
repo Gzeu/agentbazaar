@@ -29,9 +29,9 @@ export class WarpsService {
   // Build a Warp JSON for a given service from the DB/cache
   // ---------------------------------------------------------------------------
   async buildServiceWarp(serviceId: string): Promise<Record<string, unknown>> {
-    // Fetch service details from the services module / blockchain
-    // TODO: replace stub with ServicesService.findOne(serviceId) once that module is wired
-    const protocol = 'warp:3.0'; // fixed: was 'warp:1.0'
+    // TODO: replace stub with real ServicesService.findOne(serviceId) call
+    // once ServicesModule is wired into WarpsModule dependencies.
+    const protocol = 'warp:3.0';
     const chain = 'multiversx';
     const escrowContract = this.config.get<string>('ESCROW_CONTRACT', '');
 

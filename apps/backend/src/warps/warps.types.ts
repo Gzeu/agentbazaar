@@ -16,7 +16,10 @@ export class PublishWarpDto {
   alias?: string;
 }
 
-// qrDataUrl removed — it is client-only and should be generated in the frontend, not returned by the server
+/**
+ * Result returned by the server after publishing a Warp.
+ * Note: qrDataUrl is intentionally omitted here — QR generation is client-only.
+ */
 export interface WarpPublishResult {
   hash: string;
   alias?: string;
