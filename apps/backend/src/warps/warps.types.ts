@@ -2,11 +2,12 @@
  * Shared DTOs and types for the Warps module.
  */
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
-import { IsString, IsOptional } from 'class-validator';
+import { IsString, IsOptional, IsNotEmpty } from 'class-validator';
 
 export class PublishWarpDto {
   @ApiProperty({ description: 'Serialized Warp JSON (v3.0.0)' })
   @IsString()
+  @IsNotEmpty()
   warpJson!: string;
 
   @ApiPropertyOptional({ description: 'Optional human-readable alias for the Warp' })
@@ -15,11 +16,11 @@ export class PublishWarpDto {
   alias?: string;
 }
 
+// qrDataUrl removed — it is client-only and should be generated in the frontend, not returned by the server
 export interface WarpPublishResult {
   hash: string;
   alias?: string;
   url: string;
-  qrDataUrl?: string;
 }
 
 export type WarpActionType =

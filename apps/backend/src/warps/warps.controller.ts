@@ -17,6 +17,20 @@ export class WarpsController {
   constructor(private readonly warpsService: WarpsService) {}
 
   /**
+   * GET /warps/resolve/:alias
+   * Resolves a Warp alias or hash to the full Warp JSON + meta.
+   * MUST be declared before :serviceId to avoid NestJS swallowing 'resolve' as a param.
+   */
+  @Get('resolve/:alias')
+  @ApiOperation({ summary: 'Resolve a Warp alias to full JSON' })
+  @ApiParam({ name: 'alias', description: 'Warp alias or hash' })
+  @ApiResponse({ status: 200, description: 'Full Warp JSON with meta' })
+  @ApiResponse({ status: 404, description: 'Warp not found' })
+  async resolveWarp(@Param('alias') alias: string): Promise<WarpResolved> {
+    return this.warpsService.resolveWarp(alias);
+  }
+
+  /**
    * GET /warps/:serviceId
    * Returns a ready-to-embed/share Warp JSON for a given marketplace service.
    */
@@ -39,18 +53,5 @@ export class WarpsController {
   @ApiResponse({ status: 201, description: 'Warp published — returns URL + hash' })
   async publishWarp(@Body() dto: PublishWarpDto): Promise<WarpPublishResult> {
     return this.warpsService.publishWarp(dto);
-  }
-
-  /**
-   * GET /warps/resolve/:alias
-   * Resolves a Warp alias or hash to the full Warp JSON + meta.
-   */
-  @Get('resolve/:alias')
-  @ApiOperation({ summary: 'Resolve a Warp alias to full JSON' })
-  @ApiParam({ name: 'alias', description: 'Warp alias or hash' })
-  @ApiResponse({ status: 200, description: 'Full Warp JSON with meta' })
-  @ApiResponse({ status: 404, description: 'Warp not found' })
-  async resolveWarp(@Param('alias') alias: string): Promise<WarpResolved> {
-    return this.warpsService.resolveWarp(alias);
   }
 }
