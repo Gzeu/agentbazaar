@@ -14,6 +14,9 @@ async function getWarp(hash: string) {
   try {
     const res = await fetch(`${backendUrl}/warps/resolve/${hash}`, {
       next: { revalidate: 60 },
+      signal: typeof AbortSignal !== 'undefined' && 'timeout' in AbortSignal
+        ? AbortSignal.timeout(8_000)
+        : undefined,
     });
     if (!res.ok) return null;
     return res.json();
