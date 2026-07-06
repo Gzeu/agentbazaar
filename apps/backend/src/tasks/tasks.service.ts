@@ -22,13 +22,32 @@ export interface TaskRecord {
   deadline: string;
 }
 
-/** Keep in sync with TASK_TIMEOUT in escrow contract (1800s = 30 min) */
+/** Matches TASK_TIMEOUT in Escrow contract (1800s = 30 min) */
 const TASK_TIMEOUT_MS = 1800 * 1000;
 
 @Injectable()
 export class TasksService implements OnModuleInit {
   private readonly logger = new Logger(TasksService.name);
   private store = new Map<string, TaskRecord>();
+
+  /**
+   * Lazily injected to avoid circular NestJS dependency.
+   * Call setDependencies() from AppModule.onModuleInit() after all modules are ready.
+   */
+  private reputationService?: {
+    updateFromTask: (addr: string, success: boolean, latencyMs?: number) => void;
+  };
+  private servicesService?: {
+    incrementTaskStats: (serviceId: string, success: boolean, latencyMs?: number) => void;
+  };
+
+  setDependencies(
+    rep: { updateFromTask: (addr: string, success: boolean, latencyMs?: number) => void },
+    svc: { incrementTaskStats: (serviceId: string, success: boolean, latencyMs?: number) => void },
+  ) {
+    this.reputationService = rep;
+    this.servicesService = svc;
+  }
 
   onModuleInit() {
     const now = Date.now();
@@ -68,8 +87,6 @@ export class TasksService implements OnModuleInit {
       (a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime(),
     );
     if (opts.status) list = list.filter(t => t.status === opts.status);
-
-    // Cursor-based pagination: `after` is a task id
     if (opts.after) {
       const idx = list.findIndex(t => t.id === opts.after);
       if (idx !== -1) list = list.slice(idx + 1);
@@ -103,7 +120,6 @@ export class TasksService implements OnModuleInit {
       escrowTxHash:    dto.escrowTxHash,
       createdAt:       now.toISOString(),
       updatedAt:       now.toISOString(),
-      // Default deadline = now + TASK_TIMEOUT_MS (matches on-chain 1800s)
       deadline: dto.deadline ?? new Date(now.getTime() + TASK_TIMEOUT_MS).toISOString(),
     };
     this.store.set(id, record);
@@ -122,13 +138,18 @@ export class TasksService implements OnModuleInit {
     task.latencyMs = dto.latencyMs;
     task.updatedAt = new Date().toISOString();
     this.store.set(id, task);
+
+    // Wire cross-service stats after real completion
+    this.reputationService?.updateFromTask(task.providerAddress, true, dto.latencyMs);
+    this.servicesService?.incrementTaskStats(task.serviceId, true, dto.latencyMs);
+
     this.logger.log(`Task completed: ${id} — ${dto.latencyMs}ms`);
     return task;
   }
 
   dispute(id: string, reason: string): TaskRecord {
     const task = this.findOne(id);
-    if (task.status !== 'pending' && task.status !== 'running' && task.status !== 'completed') {
+    if (!['pending', 'running', 'completed'].includes(task.status)) {
       throw new Error(`Cannot dispute task in status: ${task.status}`);
     }
     task.status        = 'disputed';
@@ -144,13 +165,17 @@ export class TasksService implements OnModuleInit {
     if (task.status !== 'pending') {
       throw new Error(`Cannot refund task in status: ${task.status}`);
     }
-    const deadline = new Date(task.deadline).getTime();
-    if (Date.now() < deadline) {
-      throw new Error(`Task deadline not reached yet`);
+    if (Date.now() < new Date(task.deadline).getTime()) {
+      throw new Error(`Task deadline not reached yet (30 min timeout)`);
     }
     task.status    = 'refunded';
     task.updatedAt = new Date().toISOString();
     this.store.set(id, task);
+
+    // Provider failed to deliver — penalise reputation
+    this.reputationService?.updateFromTask(task.providerAddress, false);
+    this.servicesService?.incrementTaskStats(task.serviceId, false);
+
     this.logger.log(`Task refunded: ${id}`);
     return task;
   }
@@ -166,12 +191,17 @@ export class TasksService implements OnModuleInit {
     setTimeout(() => {
       const t = this.store.get(id);
       if (!t || t.status !== 'running') return;
-      const success  = Math.random() > 0.1;
+      const success = Math.random() > 0.1;
       t.status    = success ? 'completed' : 'failed';
       t.latencyMs = success ? latency : undefined;
       t.proofHash = success ? `0x${uuidv4().replace(/-/g, '')}` : undefined;
       t.updatedAt = new Date().toISOString();
       this.store.set(id, t);
+
+      // Wire stats for simulated execution too
+      this.reputationService?.updateFromTask(t.providerAddress, success, t.latencyMs);
+      this.servicesService?.incrementTaskStats(t.serviceId, success, t.latencyMs);
+
       this.logger.log(`Task ${id} → ${t.status}${success ? ` (${latency}ms)` : ''}`);
     }, latency);
   }

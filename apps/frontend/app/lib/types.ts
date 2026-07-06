@@ -1,6 +1,9 @@
+// ─── Service ─────────────────────────────────────────────────────────────────
+
+/** Slugs must match backend ServicesService category values */
 export type ServiceCategory =
-  | 'data-fetching'
-  | 'compute-offload'
+  | 'data'
+  | 'compute'
   | 'wallet-actions'
   | 'compliance'
   | 'enrichment'
@@ -12,7 +15,6 @@ export interface Service {
   name: string;
   description: string;
   category: ServiceCategory;
-  version: string;
   providerAddress: string;
   endpoint: string;
   pricingModel: string;
@@ -20,41 +22,78 @@ export interface Service {
   priceToken: string;
   maxLatencyMs: number;
   uptimeGuarantee: number;
-  reputationScore: number; // 0-10000 bps
+  reputationScore: number;
   active: boolean;
-  registeredAt: string;
+  createdAt: string;
   totalTasks: number;
   ucpCompatible: boolean;
   mcpCompatible: boolean;
   tags: string[];
 }
 
-export type TaskStatus = 'pending' | 'running' | 'completed' | 'failed' | 'disputed';
+// ─── Task ─────────────────────────────────────────────────────────────────────
+
+/** Keep in sync with TasksService (backend) and Escrow contract */
+export type TaskStatus =
+  | 'pending'
+  | 'running'
+  | 'completed'
+  | 'failed'
+  | 'disputed'
+  | 'refunded';
 
 export interface Task {
   id: string;
   serviceId: string;
   consumerId: string;
   providerAddress: string;
-  payload: Record<string, unknown>;
   maxBudget: string;
   status: TaskStatus;
+  payloadHash?: string;
   proofHash?: string;
-  result?: Record<string, unknown>;
+  escrowTxHash?: string;
   latencyMs?: number;
+  disputeReason?: string;
   createdAt: string;
   updatedAt: string;
   deadline: string;
 }
 
+export interface TaskListResponse {
+  data: Task[];
+  total: number;
+  nextCursor: string | null;
+}
+
+// ─── Reputation ──────────────────────────────────────────────────────────────
+
 export interface ReputationRecord {
   agentAddress: string;
   totalTasks: number;
   successfulTasks: number;
-  disputedTasks: number;
   avgLatencyMs: number;
   compositeScore: number;
   completionRate: number;
-  lastUpdated: string;
   slashed: boolean;
+  syncedAt?: string;
+}
+
+// ─── Dispute ─────────────────────────────────────────────────────────────────
+
+export interface DisputeVote {
+  taskId: string;
+  votesForBuyer: number;
+  votesForProvider: number;
+  resolved: boolean;
+}
+
+// ─── Provider ────────────────────────────────────────────────────────────────
+
+export interface Provider {
+  address: string;
+  name: string;
+  reputationScore: number;
+  totalTasks: number;
+  activeServices: number;
+  joinedAt: string;
 }
