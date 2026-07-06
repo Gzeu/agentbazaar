@@ -1,7 +1,9 @@
 import { Injectable, NotFoundException, Logger, OnModuleInit } from '@nestjs/common';
 import { v4 as uuidv4 } from 'uuid';
+import { CreateTaskDto } from './dto/create-task.dto';
+import { CompleteTaskDto } from './dto/complete-task.dto';
 
-export type TaskStatus = 'pending' | 'running' | 'completed' | 'failed' | 'disputed';
+export type TaskStatus = 'pending' | 'running' | 'completed' | 'failed' | 'disputed' | 'refunded';
 
 export interface TaskRecord {
   id: string;
@@ -14,10 +16,14 @@ export interface TaskRecord {
   proofHash?: string;
   escrowTxHash?: string;
   latencyMs?: number;
+  disputeReason?: string;
   createdAt: string;
   updatedAt: string;
   deadline: string;
 }
+
+/** Keep in sync with TASK_TIMEOUT in escrow contract (1800s = 30 min) */
+const TASK_TIMEOUT_MS = 1800 * 1000;
 
 @Injectable()
 export class TasksService implements OnModuleInit {
@@ -25,25 +31,55 @@ export class TasksService implements OnModuleInit {
   private store = new Map<string, TaskRecord>();
 
   onModuleInit() {
-    // Seed demo tasks
     const now = Date.now();
     const demos: Partial<TaskRecord>[] = [
-      { id: 'task-demo-001', serviceId: 'svc-demo', consumerId: 'erd1consumer…', providerAddress: 'erd1provider…', status: 'completed', maxBudget: '1000000000000000', latencyMs: 187, createdAt: new Date(now - 3600000).toISOString(), updatedAt: new Date(now - 3599000).toISOString(), deadline: new Date(now + 300000).toISOString() },
-      { id: 'task-demo-002', serviceId: 'svc-demo', consumerId: 'erd1consumer…', providerAddress: 'erd1provider…', status: 'running',   maxBudget: '5000000000000000', createdAt: new Date(now - 120000).toISOString(),  updatedAt: new Date(now - 60000).toISOString(),  deadline: new Date(now + 180000).toISOString() },
-      { id: 'task-demo-003', serviceId: 'svc-demo', consumerId: 'erd1consumer…', providerAddress: 'erd1provider…', status: 'pending',   maxBudget: '500000000000000',  createdAt: new Date(now - 30000).toISOString(),   updatedAt: new Date(now - 30000).toISOString(),  deadline: new Date(now + 270000).toISOString() },
+      {
+        id: 'task-demo-001', serviceId: 'svc-demo',
+        consumerId: 'erd1consumer', providerAddress: 'erd1provider',
+        status: 'completed', maxBudget: '1000000000000000',
+        latencyMs: 187, proofHash: '0xabc123demo',
+        createdAt: new Date(now - 3_600_000).toISOString(),
+        updatedAt: new Date(now - 3_599_000).toISOString(),
+        deadline:  new Date(now - 3_599_000 + TASK_TIMEOUT_MS).toISOString(),
+      },
+      {
+        id: 'task-demo-002', serviceId: 'svc-demo',
+        consumerId: 'erd1consumer', providerAddress: 'erd1provider',
+        status: 'running', maxBudget: '5000000000000000',
+        createdAt: new Date(now - 120_000).toISOString(),
+        updatedAt: new Date(now - 60_000).toISOString(),
+        deadline:  new Date(now - 120_000 + TASK_TIMEOUT_MS).toISOString(),
+      },
+      {
+        id: 'task-demo-003', serviceId: 'svc-demo',
+        consumerId: 'erd1consumer', providerAddress: 'erd1provider',
+        status: 'pending', maxBudget: '500000000000000',
+        createdAt: new Date(now - 30_000).toISOString(),
+        updatedAt: new Date(now - 30_000).toISOString(),
+        deadline:  new Date(now - 30_000 + TASK_TIMEOUT_MS).toISOString(),
+      },
     ];
-    for (const d of demos) {
-      this.store.set(d.id!, d as TaskRecord);
-    }
+    for (const d of demos) this.store.set(d.id!, d as TaskRecord);
     this.logger.log(`Seeded ${this.store.size} demo tasks`);
   }
 
-  findAll(opts: { limit: number; status?: string }) {
+  findAll(opts: { limit: number; status?: string; after?: string }) {
     let list = Array.from(this.store.values()).sort(
       (a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime(),
     );
     if (opts.status) list = list.filter(t => t.status === opts.status);
-    return { data: list.slice(0, opts.limit), total: list.length };
+
+    // Cursor-based pagination: `after` is a task id
+    if (opts.after) {
+      const idx = list.findIndex(t => t.id === opts.after);
+      if (idx !== -1) list = list.slice(idx + 1);
+    }
+    const page = list.slice(0, opts.limit);
+    return {
+      data: page,
+      total: list.length,
+      nextCursor: page.length === opts.limit ? page[page.length - 1].id : null,
+    };
   }
 
   findOne(id: string): TaskRecord {
@@ -52,37 +88,70 @@ export class TasksService implements OnModuleInit {
     return t;
   }
 
-  create(body: Record<string, unknown>): TaskRecord {
-    const id = String(body.id ?? `task-${uuidv4().slice(0, 8)}`);
-    const now = new Date().toISOString();
+  create(dto: CreateTaskDto): TaskRecord {
+    const id = dto.id ?? `task-${uuidv4().slice(0, 8)}`;
+    if (this.store.has(id)) throw new Error(`Task ID ${id} already exists`);
+    const now = new Date();
     const record: TaskRecord = {
       id,
-      serviceId:       String(body.serviceId ?? ''),
-      consumerId:      String(body.consumerId ?? ''),
-      providerAddress: String(body.providerAddress ?? ''),
+      serviceId:       dto.serviceId,
+      consumerId:      dto.consumerId,
+      providerAddress: dto.providerAddress,
       status:          'pending',
-      maxBudget:       String(body.maxBudget ?? '0'),
-      payloadHash:     body.payloadHash as string | undefined,
-      escrowTxHash:    body.escrowTxHash as string | undefined,
-      createdAt:       now,
-      updatedAt:       now,
-      deadline:        String(body.deadline ?? new Date(Date.now() + 300000).toISOString()),
+      maxBudget:       dto.maxBudget,
+      payloadHash:     dto.payloadHash,
+      escrowTxHash:    dto.escrowTxHash,
+      createdAt:       now.toISOString(),
+      updatedAt:       now.toISOString(),
+      // Default deadline = now + TASK_TIMEOUT_MS (matches on-chain 1800s)
+      deadline: dto.deadline ?? new Date(now.getTime() + TASK_TIMEOUT_MS).toISOString(),
     };
     this.store.set(id, record);
     this.logger.log(`Task created: ${id}`);
-    // Simulate async execution
     setTimeout(() => this.simulateExecution(id), 2000 + Math.random() * 3000);
     return record;
   }
 
-  complete(id: string, proofHash: string, latencyMs: number): TaskRecord {
+  complete(id: string, dto: CompleteTaskDto): TaskRecord {
     const task = this.findOne(id);
-    task.status     = 'completed';
-    task.proofHash  = proofHash;
-    task.latencyMs  = latencyMs;
-    task.updatedAt  = new Date().toISOString();
+    if (task.status !== 'pending' && task.status !== 'running') {
+      throw new Error(`Cannot complete task in status: ${task.status}`);
+    }
+    task.status    = 'completed';
+    task.proofHash = dto.proofHash;
+    task.latencyMs = dto.latencyMs;
+    task.updatedAt = new Date().toISOString();
     this.store.set(id, task);
-    this.logger.log(`Task completed: ${id} — ${latencyMs}ms`);
+    this.logger.log(`Task completed: ${id} — ${dto.latencyMs}ms`);
+    return task;
+  }
+
+  dispute(id: string, reason: string): TaskRecord {
+    const task = this.findOne(id);
+    if (task.status !== 'pending' && task.status !== 'running' && task.status !== 'completed') {
+      throw new Error(`Cannot dispute task in status: ${task.status}`);
+    }
+    task.status        = 'disputed';
+    task.disputeReason = reason;
+    task.updatedAt     = new Date().toISOString();
+    this.store.set(id, task);
+    this.logger.log(`Task disputed: ${id} — ${reason}`);
+    return task;
+  }
+
+  refund(id: string): TaskRecord {
+    const task = this.findOne(id);
+    if (task.status !== 'pending') {
+      throw new Error(`Cannot refund task in status: ${task.status}`);
+    }
+    const deadline = new Date(task.deadline).getTime();
+    if (Date.now() < deadline) {
+      throw new Error(`Task deadline not reached yet`);
+    }
+    task.status    = 'refunded';
+    task.updatedAt = new Date().toISOString();
+    this.store.set(id, task);
+    this.logger.log(`Task refunded: ${id}`);
     return task;
   }
 
@@ -96,8 +165,8 @@ export class TasksService implements OnModuleInit {
     const latency = 100 + Math.floor(Math.random() * 400);
     setTimeout(() => {
       const t = this.store.get(id);
-      if (!t) return;
-      const success = Math.random() > 0.1;
+      if (!t || t.status !== 'running') return;
+      const success  = Math.random() > 0.1;
       t.status    = success ? 'completed' : 'failed';
       t.latencyMs = success ? latency : undefined;
       t.proofHash = success ? `0x${uuidv4().replace(/-/g, '')}` : undefined;
