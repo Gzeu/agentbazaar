@@ -72,7 +72,7 @@ export class ServicesService implements OnModuleInit {
       const id = `svc-${uuidv4().slice(0, 8)}`;
       this.store.set(id, { ...s, id, createdAt: new Date().toISOString() });
     }
-    this.logger.log(`Seeded ${this.store.size} mock services`);
+    this.logger.log(`Seeded ${this.store.size} services`);
   }
 
   findAll(opts: { category?: string; limit: number; activeOnly?: boolean }) {
@@ -82,7 +82,7 @@ export class ServicesService implements OnModuleInit {
     return { data: list.slice(0, opts.limit), total: list.length };
   }
 
-  findOne(id: string) {
+  findOne(id: string): ServiceRecord {
     const s = this.store.get(id);
     if (!s) throw new NotFoundException(`Service ${id} not found`);
     return s;
@@ -115,17 +115,30 @@ export class ServicesService implements OnModuleInit {
     return record;
   }
 
-  /** Called after task completion to update reputationScore + totalTasks */
-  incrementTaskStats(serviceId: string, success: boolean, latencyMs?: number) {
+  deregister(id: string): { success: boolean } {
+    const s = this.store.get(id);
+    if (!s) throw new NotFoundException(`Service ${id} not found`);
+    s.active = false;
+    this.store.set(id, s);
+    this.logger.log(`Service deregistered: ${id}`);
+    return { success: true };
+  }
+
+  /**
+   * Called after task completion/failure to update reputationScore + totalTasks.
+   * Uses EMA blend: new_score = old * 0.9 + sample * 0.1
+   * Failed tasks penalise score by 5%.
+   */
+  incrementTaskStats(serviceId: string, success: boolean, latencyMs?: number): void {
     const s = this.store.get(serviceId);
     if (!s) return;
     s.totalTasks += 1;
     if (success && latencyMs !== undefined) {
-      // Running average reputation score blend (simple EMA)
-      const newSample = latencyMs < 300 ? 100 : latencyMs < 600 ? 80 : 60;
-      s.reputationScore = Math.round(s.reputationScore * 0.9 + newSample * 0.1);
+      const sample = latencyMs < 300 ? 100 : latencyMs < 600 ? 80 : 60;
+      s.reputationScore = Math.round(s.reputationScore * 0.9 + sample * 0.1);
+    } else if (!success) {
+      s.reputationScore = Math.max(0, Math.round(s.reputationScore * 0.95));
     }
-    s.active = true;
     this.store.set(serviceId, s);
   }
 }
