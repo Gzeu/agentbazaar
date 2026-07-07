@@ -1,63 +1,110 @@
 'use client';
 
+import { useState, useCallback } from 'react';
+import { RefreshCw } from 'lucide-react';
 import { useTasks } from '@/hooks/useTasks';
-import { Skeleton } from '@/components/ui/Skeleton';
-import { clsx } from 'clsx';
-import { Zap, CheckCircle, Clock, AlertCircle } from 'lucide-react';
-
-const STATUS_STYLES: Record<string, string> = {
-  pending:   'bg-yellow-500/10 text-yellow-400 border-yellow-500/20',
-  running:   'bg-brand-500/10 text-brand-400 border-brand-500/20',
-  completed: 'bg-green-500/10 text-green-400 border-green-500/20',
-  failed:    'bg-red-500/10 text-red-400 border-red-500/20',
-  disputed:  'bg-orange-500/10 text-orange-400 border-orange-500/20',
-};
-
-const STATUS_ICONS: Record<string, React.ReactNode> = {
-  pending:   <Clock size={12} />,
-  running:   <Zap size={12} />,
-  completed: <CheckCircle size={12} />,
-  failed:    <AlertCircle size={12} />,
-  disputed:  <AlertCircle size={12} />,
-};
+import { TaskCard } from './TaskCard';
+import type { Task } from '@/lib/types';
 
 export function TasksList() {
-  const { data, isLoading } = useTasks();
+  const {
+    tasks, stats, loading, error, filter, setFilter, hasMore, loadMore, refresh
+  } = useTasks();
 
-  if (isLoading) return (
-    <div className="space-y-3">
-      {Array.from({ length: 4 }).map((_, i) => <Skeleton key={i} className="h-20" />)}
-    </div>
-  );
+  // Local override map so UI updates instantly without waiting for next poll
+  const [overrides, setOverrides] = useState<Record<string, Task>>({});
 
-  if (!data?.length) return (
-    <div className="text-center py-20 text-dark-muted">
-      <Zap size={32} className="mx-auto mb-3 opacity-30" />
-      <p className="text-sm">Niciun task încă. Submitează primul task!</p>
-    </div>
-  );
+  const handleUpdated = useCallback((updated: Task) => {
+    setOverrides(prev => ({ ...prev, [updated.id]: updated }));
+  }, []);
+
+  // Merge overrides into tasks list
+  const displayTasks = tasks.map(t => overrides[t.id] ?? t);
+
+  const FILTERS = ['all', 'pending', 'running', 'completed', 'failed', 'disputed', 'refunded'] as const;
 
   return (
-    <div className="space-y-3">
-      {data.map((task) => (
-        <div key={task.id} className="card flex items-center justify-between gap-4 hover:border-brand-500/30">
-          <div className="min-w-0">
-            <div className="flex items-center gap-2 mb-1">
-              <span className={clsx('badge border flex items-center gap-1', STATUS_STYLES[task.status] || STATUS_STYLES.pending)}>
-                {STATUS_ICONS[task.status]}
-                {task.status}
-              </span>
-              <span className="text-xs text-dark-muted font-mono truncate">{task.id.slice(0, 8)}…</span>
-            </div>
-            <p className="text-sm text-dark-text font-medium truncate">Service: {task.serviceId.slice(0, 16)}…</p>
-            <p className="text-xs text-dark-muted mt-0.5">{new Date(task.createdAt).toLocaleString()}</p>
+    <div className="space-y-4">
+      {/* Stats bar */}
+      <div className="grid grid-cols-4 gap-3">
+        {[
+          { label: 'Total',     value: stats.total },
+          { label: 'Running',   value: stats.running },
+          { label: 'Completed', value: stats.completed },
+          { label: 'Avg ms',    value: stats.avgLatency },
+        ].map(({ label, value }) => (
+          <div key={label} className="glass rounded-xl p-3 text-center">
+            <div className="text-lg font-bold text-white">{value}</div>
+            <div className="text-xs text-gray-400">{label}</div>
           </div>
-          <div className="text-right shrink-0">
-            <div className="text-sm font-mono text-brand-400">{task.maxBudget} EGLD</div>
-            {task.latencyMs && <div className="text-xs text-dark-muted mt-0.5">{task.latencyMs}ms</div>}
-          </div>
+        ))}
+      </div>
+
+      {/* Filter bar + refresh */}
+      <div className="flex items-center gap-2 flex-wrap">
+        {FILTERS.map(f => (
+          <button
+            key={f}
+            onClick={() => setFilter(f)}
+            className={`text-xs px-3 py-1.5 rounded-lg border transition-colors ${
+              filter === f
+                ? 'border-brand-500 bg-brand-900/30 text-brand-300'
+                : 'border-dark-border text-gray-400 hover:border-gray-500'
+            }`}
+          >
+            {f}
+            {f !== 'all' && stats[f as keyof typeof stats] > 0 && (
+              <span className="ml-1.5 opacity-60">{stats[f as keyof typeof stats]}</span>
+            )}
+          </button>
+        ))}
+        <button
+          onClick={refresh}
+          className="ml-auto text-xs px-3 py-1.5 rounded-lg border border-dark-border text-gray-400 hover:text-white hover:border-gray-500 transition-colors flex items-center gap-1.5"
+          title="Refresh tasks"
+        >
+          <RefreshCw size={11} />
+          Refresh
+        </button>
+      </div>
+
+      {/* Error state */}
+      {error && (
+        <div className="text-sm text-red-400 bg-red-900/20 border border-red-700/30 rounded-lg p-3">
+          Failed to load tasks: {error}
         </div>
-      ))}
+      )}
+
+      {/* Loading state */}
+      {loading && !displayTasks.length && (
+        <div className="text-center text-gray-500 py-12 text-sm">Loading tasks…</div>
+      )}
+
+      {/* Empty state */}
+      {!loading && !error && displayTasks.length === 0 && (
+        <div className="text-center text-gray-500 py-12 text-sm">
+          No tasks found{filter !== 'all' ? ` with status "${filter}"` : ''}.
+        </div>
+      )}
+
+      {/* Task grid */}
+      <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-3">
+        {displayTasks.map(task => (
+          <TaskCard key={task.id} task={task} onUpdated={handleUpdated} />
+        ))}
+      </div>
+
+      {/* Load more */}
+      {hasMore && (
+        <div className="flex justify-center pt-2">
+          <button
+            onClick={loadMore}
+            className="btn-secondary text-sm px-6"
+          >
+            Load more
+          </button>
+        </div>
+      )}
     </div>
   );
 }
