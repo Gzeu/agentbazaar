@@ -5,26 +5,39 @@ import { MultiversxService } from '../multiversx/multiversx.service';
 import { ChainEvent } from './events.gateway';
 import { v4 as uuidv4 } from 'uuid';
 
-// Known event identifiers in MultiversX log topics (hex encoded first topic = event name)
 const EVENT_IDENTIFIERS: Record<string, string> = {
   serviceRegistered: 'ServiceRegistered',
-  taskCreated: 'TaskCreated',
-  taskCompleted: 'TaskCompleted',
-  taskRefunded: 'TaskRefunded',
-  disputeOpened: 'TaskDisputed',
-  disputeResolved: 'TaskDisputed',
-  scoreUpdated: 'ReputationUpdated',
-  agentSlashed: 'ReputationUpdated',
+  taskCreated:       'TaskCreated',
+  taskCompleted:     'TaskCompleted',
+  taskRefunded:      'TaskRefunded',
+  disputeOpened:     'TaskDisputed',
+  disputeResolved:   'TaskDisputed',
+  scoreUpdated:      'ReputationUpdated',
+  agentSlashed:      'ReputationUpdated',
 };
+
+interface MvxTxRaw {
+  txHash?:    string;
+  function?:  string;
+  timestamp?: number;
+  round?:     number;
+  sender?:    string;
+  receiver?:  string;
+  value?:     string;
+}
+
+function isMvxTx(v: unknown): v is MvxTxRaw {
+  return typeof v === 'object' && v !== null;
+}
 
 @Injectable()
 export class EventPoller implements OnModuleDestroy {
   private readonly logger = new Logger(EventPoller.name);
   private lastNonce = 0;
-  private running = true;
+  private running   = true;
 
   constructor(
-    private readonly mvx: MultiversxService,
+    private readonly mvx:     MultiversxService,
     private readonly emitter: EventEmitter2,
   ) {}
 
@@ -33,45 +46,36 @@ export class EventPoller implements OnModuleDestroy {
   }
 
   @Cron(CronExpression.EVERY_2_SECONDS)
-  async poll() {
+  async poll(): Promise<void> {
     if (!this.running) return;
     const contracts = [
       this.mvx.REGISTRY_CONTRACT,
       this.mvx.ESCROW_CONTRACT,
       this.mvx.REPUTATION_CONTRACT,
-    ].filter(Boolean);
+    ].filter(Boolean) as string[];
 
     if (contracts.length === 0) {
-      // No contracts configured — emit synthetic mock event for dev
-      if (process.env.NODE_ENV !== 'production') {
-        this.emitMock();
-      }
+      if (process.env['NODE_ENV'] !== 'production') this.emitMock();
       return;
     }
 
     try {
-      const provider = this.mvx.getProvider();
+      const provider      = this.mvx.getProvider();
       const networkStatus = await provider.getNetworkStatus();
-      const currentNonce = networkStatus.HighestFinalNonce;
+      const currentNonce  = (networkStatus as { HighestFinalNonce: number }).HighestFinalNonce;
 
       if (currentNonce <= this.lastNonce) return;
 
-      // Fetch transactions for each contract since last nonce
       for (const address of contracts) {
-        await this.fetchContractEvents(address, this.lastNonce, currentNonce);
+        await this.fetchContractEvents(address);
       }
-
       this.lastNonce = currentNonce;
     } catch (err) {
-      this.logger.warn(`EventPoller error: ${err.message}`);
+      this.logger.warn(`EventPoller error: ${(err as Error).message}`);
     }
   }
 
-  private async fetchContractEvents(
-    address: string,
-    fromNonce: number,
-    toNonce: number,
-  ) {
+  private async fetchContractEvents(address: string): Promise<void> {
     try {
       const apiUrl =
         this.mvx.NETWORK === 'mainnet'
@@ -82,49 +86,51 @@ export class EventPoller implements OnModuleDestroy {
       const res = await fetch(url, { headers: { Accept: 'application/json' } });
       if (!res.ok) return;
 
-      const txs: any[] = await res.json();
+      const raw: unknown = await res.json();
+      if (!Array.isArray(raw)) return;
 
-      for (const tx of txs) {
-        const func = tx.function || '';
-        const mapped = EVENT_IDENTIFIERS[func] || func;
+      for (const item of raw) {
+        if (!isMvxTx(item)) continue;
+        const tx     = item as MvxTxRaw;
+        const func   = tx.function ?? '';
+        const mapped = EVENT_IDENTIFIERS[func] ?? func;
         if (!mapped) continue;
 
         const event: ChainEvent = {
-          id: tx.txHash || uuidv4(),
-          type: mapped,
-          txHash: tx.txHash,
-          timestamp: tx.timestamp * 1000,
-          blockNonce: tx.round || 0,
+          id:         tx.txHash ?? uuidv4(),
+          type:       mapped,
+          txHash:     tx.txHash ?? '',
+          timestamp:  (tx.timestamp ?? 0) * 1000,
+          blockNonce: tx.round ?? 0,
           data: {
-            sender: tx.sender,
-            receiver: tx.receiver,
-            value: tx.value || '0',
+            sender:   tx.sender   ?? '',
+            receiver: tx.receiver ?? '',
+            value:    tx.value    ?? '0',
             function: func,
           },
         };
-
         this.emitter.emit('chain.event', event);
       }
     } catch (err) {
-      this.logger.debug(`fetchContractEvents error for ${address}: ${err.message}`);
+      this.logger.debug(`fetchContractEvents error for ${address}: ${(err as Error).message}`);
     }
   }
 
-  private emitMock() {
+  private emitMock(): void {
     const types = [
       'TaskCreated', 'TaskCompleted', 'ServiceRegistered',
       'ReputationUpdated', 'EscrowReleased',
     ];
     const rnd = (n: number) =>
       Array.from({ length: n }, () => Math.floor(Math.random() * 16).toString(16)).join('');
-    const type = types[Math.floor(Math.random() * types.length)];
+    const type = types[Math.floor(Math.random() * types.length)] as string;
     const event: ChainEvent = {
-      id: rnd(8),
+      id:         rnd(8),
       type,
-      txHash: rnd(32),
-      timestamp: Date.now(),
-      blockNonce: Math.floor(Math.random() * 9999999),
-      data: { mock: 'true', source: 'EventPoller' },
+      txHash:     rnd(32),
+      timestamp:  Date.now(),
+      blockNonce: Math.floor(Math.random() * 9_999_999),
+      data:       { mock: 'true', source: 'EventPoller' },
     };
     this.emitter.emit('chain.event', event);
   }

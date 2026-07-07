@@ -68,7 +68,7 @@ export function useTasks() {
       const withLatency = allTasks.filter(t => t.latencyMs);
       if (!withLatency.length) return 0;
       return Math.round(
-        withLatency.reduce((s, t) => s + (t.latencyMs ?? 0), 0) / withLatency.length
+        withLatency.reduce((s, t) => s + (t.latencyMs ?? 0), 0) / withLatency.length,
       );
     })(),
   }), [allTasks, total]);
@@ -90,4 +90,37 @@ export function useTasks() {
     loadMore, hasMore: Boolean(nextCursor),
     refresh,
   };
+}
+
+/**
+ * useSubmitTask — creates a task via the real API.
+ * Used by SubmitTaskModal.
+ */
+export function useSubmitTask() {
+  const [isPending, setIsPending] = useState(false);
+  const [error, setError]         = useState<string | null>(null);
+
+  const mutate = useCallback(
+    async (
+      dto: Parameters<typeof tasksApi.create>[0],
+      options?: { onSuccess?: (task: Task) => void; onError?: (msg: string) => void },
+    ) => {
+      setIsPending(true);
+      setError(null);
+      try {
+        const task = await tasksApi.create(dto);
+        options?.onSuccess?.(task);
+        return task;
+      } catch (err) {
+        const msg = (err as Error).message;
+        setError(msg);
+        options?.onError?.(msg);
+      } finally {
+        setIsPending(false);
+      }
+    },
+    [],
+  );
+
+  return { mutate, isPending, error };
 }

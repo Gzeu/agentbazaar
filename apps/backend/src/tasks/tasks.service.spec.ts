@@ -2,7 +2,6 @@ import { Test, TestingModule } from '@nestjs/testing';
 import { TasksService } from './tasks.service';
 import { NotFoundException } from '@nestjs/common';
 
-// Minimal stubs for lazy-injected dependencies
 const mockRep = { updateFromTask: jest.fn() };
 const mockSvc = { incrementTaskStats: jest.fn() };
 
@@ -16,27 +15,26 @@ describe('TasksService', () => {
 
     service = module.get<TasksService>(TasksService);
     service.setDependencies(mockRep, mockSvc);
-    // onModuleInit seeds 3 demo tasks
     service.onModuleInit();
     jest.clearAllMocks();
   });
 
-  // ─── findAll ───────────────────────────────────────────────────────────
+  // ─── findAll ──────────────────────────────────────────────────────
 
   describe('findAll', () => {
-    it('returns all seeded tasks', () => {
+    it('returns all 3 seeded tasks', () => {
       const result = service.findAll({ limit: 10 });
       expect(result.data.length).toBe(3);
       expect(result.total).toBe(3);
       expect(result.nextCursor).toBeNull();
     });
 
-    it('filters by status', () => {
+    it('filters by status=completed', () => {
       const result = service.findAll({ limit: 10, status: 'completed' });
       expect(result.data.every(t => t.status === 'completed')).toBe(true);
     });
 
-    it('paginates with cursor', () => {
+    it('cursor pagination works', () => {
       const page1 = service.findAll({ limit: 2 });
       expect(page1.data.length).toBe(2);
       expect(page1.nextCursor).not.toBeNull();
@@ -47,44 +45,37 @@ describe('TasksService', () => {
     });
   });
 
-  // ─── create ──────────────────────────────────────────────────────────────
+  // ─── create ───────────────────────────────────────────────────────
 
   describe('create', () => {
-    it('creates a task with status pending', () => {
+    it('creates a task with status=pending', () => {
       const task = service.create({
-        serviceId: 'svc-test',
-        consumerId: 'erd1consumer',
+        serviceId:       'svc-test',
+        consumerId:      'erd1consumer',
         providerAddress: 'erd1provider',
-        maxBudget: '1000000000000000',
+        maxBudget:       '1000000000000000',
       });
       expect(task.status).toBe('pending');
       expect(task.id).toMatch(/^task-/);
     });
 
-    it('throws if duplicate ID', () => {
-      service.create({
-        id: 'task-dup',
-        serviceId: 'svc-test',
-        consumerId: 'erd1consumer',
+    it('throws on duplicate explicit ID', () => {
+      const dto = {
+        id:              'task-dup-test',
+        serviceId:       'svc-test',
+        consumerId:      'erd1consumer',
         providerAddress: 'erd1provider',
-        maxBudget: '1000000000000000',
-      });
-      expect(() =>
-        service.create({
-          id: 'task-dup',
-          serviceId: 'svc-test',
-          consumerId: 'erd1consumer',
-          providerAddress: 'erd1provider',
-          maxBudget: '1000000000000000',
-        })
-      ).toThrow('task-dup already exists');
+        maxBudget:       '1000000000000000',
+      };
+      service.create(dto);
+      expect(() => service.create(dto)).toThrow('task-dup-test already exists');
     });
   });
 
-  // ─── complete ───────────────────────────────────────────────────────────
+  // ─── complete ─────────────────────────────────────────────────────
 
   describe('complete', () => {
-    it('marks a running task as completed and wires stats', () => {
+    it('marks running task completed and wires deps', () => {
       const task = service.complete('task-demo-002', {
         proofHash: '0xabcdef',
         latencyMs: 250,
@@ -98,18 +89,18 @@ describe('TasksService', () => {
 
     it('throws when task is already completed', () => {
       expect(() =>
-        service.complete('task-demo-001', { proofHash: '0x', latencyMs: 100 })
+        service.complete('task-demo-001', { proofHash: '0x', latencyMs: 100 }),
       ).toThrow('Cannot complete task in status: completed');
     });
 
-    it('throws for unknown task', () => {
+    it('throws NotFoundException for unknown task', () => {
       expect(() =>
-        service.complete('nonexistent', { proofHash: '0x', latencyMs: 0 })
+        service.complete('nonexistent', { proofHash: '0x', latencyMs: 0 }),
       ).toThrow(NotFoundException);
     });
   });
 
-  // ─── dispute ────────────────────────────────────────────────────────────
+  // ─── dispute ──────────────────────────────────────────────────────
 
   describe('dispute', () => {
     it('opens dispute on a pending task', () => {
@@ -124,32 +115,28 @@ describe('TasksService', () => {
     });
 
     it('throws when task is already refunded', () => {
-      // Force refunded state manually
       const t = service.findOne('task-demo-003');
-      (t as { status: string }).status = 'refunded';
+      (t as unknown as { status: string }).status = 'refunded';
       expect(() => service.dispute('task-demo-003', 'test'))
         .toThrow('Cannot dispute task in status: refunded');
     });
 
-    it('throws for unknown task', () => {
+    it('throws NotFoundException for unknown task', () => {
       expect(() => service.dispute('nope', 'reason')).toThrow(NotFoundException);
     });
   });
 
-  // ─── refund ─────────────────────────────────────────────────────────────
+  // ─── refund ───────────────────────────────────────────────────────
 
   describe('refund', () => {
     it('throws when deadline not yet reached', () => {
-      // task-demo-003 has deadline in the future
       expect(() => service.refund('task-demo-003'))
         .toThrow('Task deadline not reached yet');
     });
 
-    it('refunds a pending task past deadline and wires stats', () => {
-      // Force deadline into the past
+    it('refunds pending task past deadline and wires deps', () => {
       const t = service.findOne('task-demo-003');
       t.deadline = new Date(Date.now() - 1000).toISOString();
-
       const result = service.refund('task-demo-003');
       expect(result.status).toBe('refunded');
       expect(mockRep.updateFromTask).toHaveBeenCalledWith('erd1provider', false);
@@ -161,7 +148,7 @@ describe('TasksService', () => {
         .toThrow('Cannot refund task in status: running');
     });
 
-    it('throws for unknown task', () => {
+    it('throws NotFoundException for unknown task', () => {
       expect(() => service.refund('nope')).toThrow(NotFoundException);
     });
   });

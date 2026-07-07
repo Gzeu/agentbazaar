@@ -13,7 +13,7 @@ export function SubmitTaskModal({
   providerAddress?: string;
   onClose: () => void;
 }) {
-  const { mutate, isPending } = useSubmitTask();
+  const { mutate, isPending, error } = useSubmitTask();
   const [form, setForm] = useState({
     serviceId,
     consumerId: '',
@@ -23,46 +23,74 @@ export function SubmitTaskModal({
     deadlineSeconds: 300,
   });
 
-  const set = (k: string, v: unknown) => setForm((f) => ({ ...f, [k]: v }));
+  const set = (k: string, v: unknown) =>
+    setForm(f => ({ ...f, [k]: v }));
 
-  const handleSubmit = () => {
+  const handleSubmit = async () => {
     try {
-      const parsed = { ...form, payload: JSON.parse(form.payload) };
-      mutate(parsed, { onSuccess: onClose });
+      const parsed = { ...form, payload: JSON.parse(form.payload) as Record<string, unknown> };
+      await mutate(parsed, { onSuccess: onClose });
     } catch {
       alert('Payload must be valid JSON');
     }
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4" onClick={onClose}>
-      <div className="bg-dark-surface border border-dark-border rounded-2xl w-full max-w-md animate-slide-up" onClick={(e) => e.stopPropagation()}>
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4"
+      onClick={onClose}
+    >
+      <div
+        className="bg-dark-surface border border-dark-border rounded-2xl w-full max-w-md animate-slide-up"
+        onClick={(e) => e.stopPropagation()}
+      >
         <div className="flex items-center justify-between p-5 border-b border-dark-border">
-          <h2 className="font-semibold text-dark-text flex items-center gap-2"><Zap size={16} className="text-brand-400" /> Submit Task</h2>
+          <h2 className="font-semibold text-dark-text flex items-center gap-2">
+            <Zap size={16} className="text-brand-400" /> Submit Task
+          </h2>
           <button onClick={onClose} className="btn-ghost p-1"><X size={16} /></button>
         </div>
+
         <div className="p-5 space-y-4">
-          {[
-            { label: 'Service ID', key: 'serviceId' },
-            { label: 'Consumer Address (erd1...)', key: 'consumerId' },
-            { label: 'Provider Address (erd1...)', key: 'providerAddress' },
-            { label: 'Max Budget (EGLD)', key: 'maxBudget' },
-          ].map(({ label, key }) => (
+          {([
+            { label: 'Service ID',                key: 'serviceId' },
+            { label: 'Consumer Address (erd1…)', key: 'consumerId' },
+            { label: 'Provider Address (erd1…)', key: 'providerAddress' },
+            { label: 'Max Budget (EGLD)',          key: 'maxBudget' },
+          ] as { label: string; key: keyof typeof form }[]).map(({ label, key }) => (
             <div key={key}>
               <label className="label">{label}</label>
-              <input className="input" value={(form as any)[key]}
-                onChange={(e) => set(key, e.target.value)} />
+              <input
+                className="input"
+                value={String(form[key])}
+                onChange={(e) => set(key, e.target.value)}
+              />
             </div>
           ))}
+
           <div>
             <label className="label">Payload (JSON)</label>
-            <textarea className="input min-h-[80px] font-mono text-xs resize-none"
-              value={form.payload} onChange={(e) => set('payload', e.target.value)} />
+            <textarea
+              className="input min-h-[80px] font-mono text-xs resize-none"
+              value={form.payload}
+              onChange={(e) => set('payload', e.target.value)}
+            />
           </div>
+
+          {error && (
+            <p className="text-xs text-red-400 bg-red-900/20 border border-red-700/30 rounded px-3 py-2">
+              {error}
+            </p>
+          )}
         </div>
+
         <div className="p-5 border-t border-dark-border flex gap-3">
           <button className="btn-secondary flex-1" onClick={onClose}>Cancel</button>
-          <button className="btn-primary flex-1" disabled={isPending} onClick={handleSubmit}>
+          <button
+            className="btn-primary flex-1"
+            disabled={isPending}
+            onClick={() => { void handleSubmit(); }}
+          >
             {isPending ? 'Submitting…' : 'Submit Task'}
           </button>
         </div>
