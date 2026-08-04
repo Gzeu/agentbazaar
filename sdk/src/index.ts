@@ -90,62 +90,98 @@ export interface AgentBazaarConfig {
 }
 
 // ── MultiversX manual binary codec helpers ─────────────────────────────────
-// All on-chain structs use NestedEncode (no length prefix for fixed types,
-// 4-byte big-endian length prefix for variable-length types like bytes/BigUint).
+// All on-chain structs use NestedEncode:
+//   - fixed-size types (u64, bool, Address) written inline, no length prefix
+//   - variable-size types (bytes, BigUint) prefixed with 4-byte BE length
 
-/** Read a big-endian u64 (8 bytes) from buf at offset, return [value, newOffset]. */
+/** Read a big-endian u64 (8 bytes). Returns [value, newOffset]. */
 function readU64(buf: Buffer, offset: number): [bigint, number] {
-  if (offset + 8 > buf.length) throw new RangeError(`readU64: need 8 bytes at ${offset}, buf len ${buf.length}`);
+  if (offset + 8 > buf.length)
+    throw new RangeError(`readU64: need 8 bytes at ${offset}, buf len ${buf.length}`);
   const hi = buf.readUInt32BE(offset);
   const lo = buf.readUInt32BE(offset + 4);
   return [(BigInt(hi) << 32n) | BigInt(lo), offset + 8];
 }
 
-/** Read a 4-byte big-endian length-prefixed byte slice. Returns [bytes, newOffset]. */
+/** Read a 4-byte BE length-prefixed byte slice. Returns [bytes, newOffset]. */
 function readBytes(buf: Buffer, offset: number): [Buffer, number] {
-  if (offset + 4 > buf.length) throw new RangeError(`readBytes: need 4 bytes at ${offset} for length, buf len ${buf.length}`);
+  if (offset + 4 > buf.length)
+    throw new RangeError(`readBytes: need 4 bytes at ${offset} for length, buf len ${buf.length}`);
   const len = buf.readUInt32BE(offset);
   offset += 4;
-  if (offset + len > buf.length) throw new RangeError(`readBytes: need ${len} bytes at ${offset}, buf len ${buf.length}`);
+  if (offset + len > buf.length)
+    throw new RangeError(`readBytes: need ${len} bytes at ${offset}, buf len ${buf.length}`);
   return [buf.slice(offset, offset + len), offset + len];
 }
 
-/** Read a nested-encoded BigUint (4-byte length prefix + big-endian magnitude bytes). */
+/** Read a nested-encoded BigUint (4-byte length prefix + BE magnitude bytes). */
 function readBigUint(buf: Buffer, offset: number): [bigint, number] {
   const [bytes, newOffset] = readBytes(buf, offset);
   if (bytes.length === 0) return [0n, newOffset];
   let value = 0n;
-  for (const byte of bytes) {
-    value = (value << 8n) | BigInt(byte);
-  }
+  for (const byte of bytes) value = (value << 8n) | BigInt(byte);
   return [value, newOffset];
 }
 
-/** Read a 32-byte Address (MultiversX pubkey). Returns [bech32, newOffset]. */
+/**
+ * Read a 32-byte Address (MultiversX pubkey). Returns [bech32, newOffset].
+ *
+ * SDK-core version compatibility:
+ *   v13: Address.newFromPublicKey(Uint8Array, hrp?)
+ *   v12: Address.fromPublicKey(Uint8Array)
+ * We try v13 first at runtime; fall back to v12; then fall back to raw hex.
+ */
 function readAddress(buf: Buffer, offset: number): [string, number] {
-  if (offset + 32 > buf.length) throw new RangeError(`readAddress: need 32 bytes at ${offset}, buf len ${buf.length}`);
-  const pubkey = buf.slice(offset, offset + 32);
-  const addr = Address.fromPublicKey(new Uint8Array(pubkey));
-  return [addr.toBech32(), offset + 32];
+  if (offset + 32 > buf.length)
+    throw new RangeError(`readAddress: need 32 bytes at ${offset}, buf len ${buf.length}`);
+  const pubkey = new Uint8Array(buf.buffer, buf.byteOffset + offset, 32);
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const Addr = Address as any;
+  try {
+    // sdk-core v13
+    if (typeof Addr.newFromPublicKey === "function") {
+      return [Addr.newFromPublicKey(pubkey).toBech32(), offset + 32];
+    }
+    // sdk-core v12
+    if (typeof Addr.fromPublicKey === "function") {
+      return [Addr.fromPublicKey(pubkey).toBech32(), offset + 32];
+    }
+  } catch {
+    // fall through to hex fallback
+  }
+  // Last-resort: return lowercase hex of the pubkey (still unique, not bech32)
+  return [Buffer.from(pubkey).toString("hex"), offset + 32];
 }
 
-/** Read a nested-encoded bool (1 byte). */
+/** Read a nested-encoded bool (1 byte, 0x00 = false, anything else = true). */
 function readBool(buf: Buffer, offset: number): [boolean, number] {
-  if (offset + 1 > buf.length) throw new RangeError(`readBool: need 1 byte at ${offset}, buf len ${buf.length}`);
+  if (offset + 1 > buf.length)
+    throw new RangeError(`readBool: need 1 byte at ${offset}, buf len ${buf.length}`);
   return [buf[offset] !== 0, offset + 1];
 }
 
-// ── Exported decode helpers (used by unit tests) ──────────────────────────
+// ── Exported decode helpers (testable without network) ──────────────────────
 
 /**
- * Decodes a base64-encoded AgentReputation struct (TopDecode / NestedDecode layout).
- * Field order (from contracts/reputation/src/storage.rs):
- *   total_tasks(u64), successful_tasks(u64), failed_tasks(u64), disputes(u64),
- *   score(u64), stake(BigUint), total_latency_ms(u64), last_updated(u64)
+ * Decodes a base64-encoded AgentReputation struct (TopDecode layout).
+ *
+ * Field order from contracts/reputation/src/storage.rs:
+ *   total_tasks (u64), successful_tasks (u64), failed_tasks (u64),
+ *   disputes (u64), score (u64), stake (BigUint),
+ *   total_latency_ms (u64), last_updated (u64)
+ *
+ * Maps to ReputationScore:
+ *   score         ← score
+ *   totalTasks    ← total_tasks
+ *   successRate   ← successful_tasks / total_tasks  (0 if total_tasks = 0)
+ *   avgLatencyMs  ← total_latency_ms / total_tasks  (0 if total_tasks = 0)
+ *   disputes      ← disputes
+ *   stakeEgld     ← stake.toString()
+ *   lastUpdated   ← last_updated
  */
 export function decodeReputationStruct(
   agent: string,
-  base64: string
+  base64: string,
 ): ReputationScore {
   const buf = Buffer.from(base64, "base64");
   let offset = 0;
@@ -154,45 +190,55 @@ export function decodeReputationStruct(
   let disputes: bigint, score: bigint, stake: bigint;
   let totalLatencyMs: bigint, lastUpdated: bigint;
 
-  [totalTasks, offset] = readU64(buf, offset);
+  [totalTasks, offset]     = readU64(buf, offset);
   [successfulTasks, offset] = readU64(buf, offset);
-  [failedTasks, offset] = readU64(buf, offset);
-  [disputes, offset] = readU64(buf, offset);
-  [score, offset] = readU64(buf, offset);
-  [stake, offset] = readBigUint(buf, offset);
+  [failedTasks, offset]    = readU64(buf, offset);
+  void failedTasks;
+  [disputes, offset]       = readU64(buf, offset);
+  [score, offset]          = readU64(buf, offset);
+  [stake, offset]          = readBigUint(buf, offset);
   [totalLatencyMs, offset] = readU64(buf, offset);
-  [lastUpdated] = readU64(buf, offset);
+  [lastUpdated]            = readU64(buf, offset);
 
   const totalTasksNum = Number(totalTasks);
-  const successRate = totalTasksNum > 0
-    ? Number(successfulTasks) / totalTasksNum
-    : 0;
-  const avgLatencyMs = totalTasksNum > 0
-    ? Number(totalLatencyMs) / totalTasksNum
-    : 0;
+  const successRate   = totalTasksNum > 0 ? Number(successfulTasks) / totalTasksNum : 0;
+  const avgLatencyMs  = totalTasksNum > 0 ? Number(totalLatencyMs)  / totalTasksNum : 0;
 
   return {
     agent,
-    score: Number(score),
-    totalTasks: totalTasksNum,
+    score:        Number(score),
+    totalTasks:   totalTasksNum,
     successRate,
     avgLatencyMs,
-    disputes: Number(disputes),
-    stakeEgld: stake.toString(),
-    lastUpdated: Number(lastUpdated),
+    disputes:     Number(disputes),
+    stakeEgld:    stake.toString(),
+    lastUpdated:  Number(lastUpdated),
   };
 }
 
 /**
  * Decodes a base64-encoded ServiceRecord struct (NestedDecode layout).
- * Field order (from contracts/output/registry.abi.json types.ServiceRecord):
- *   provider(Address/32 bytes), name(bytes), category(bytes), endpoint_url(bytes),
- *   pricing_model(bytes), price(BigUint), metadata_uri(bytes), stake(BigUint),
- *   active(bool), registered_at(u64)
+ *
+ * Field order from contracts/output/registry.abi.json (types.ServiceRecord):
+ *   provider (Address/32B), name (bytes), category (bytes),
+ *   endpoint_url (bytes), pricing_model (bytes), price (BigUint),
+ *   metadata_uri (bytes), stake (BigUint), active (bool),
+ *   registered_at (u64)
+ *
+ * Maps to ServiceDescriptor:
+ *   serviceId     ← serviceId argument (the bytes key used to call getService)
+ *   name          ← name (utf8)
+ *   category      ← category (utf8)
+ *   endpoint      ← endpoint_url (utf8)
+ *   pricePerCall  ← price.toString()
+ *   metadataHash  ← metadata_uri (utf8)
+ *   provider      ← provider (bech32)
+ *   active        ← active
+ *   description, inputSchema, outputSchema, maxLatencyMs ← defaults
  */
 export function decodeServiceRecord(
   serviceId: string,
-  base64: string
+  base64: string,
 ): ServiceDescriptor {
   const buf = Buffer.from(base64, "base64");
   let offset = 0;
@@ -204,28 +250,28 @@ export function decodeServiceRecord(
   let active: boolean;
   let registeredAt: bigint;
 
-  [provider, offset] = readAddress(buf, offset);
-  [nameBuf, offset] = readBytes(buf, offset);
-  [categoryBuf, offset] = readBytes(buf, offset);
-  [endpointBuf, offset] = readBytes(buf, offset);
+  [provider, offset]       = readAddress(buf, offset);
+  [nameBuf, offset]        = readBytes(buf, offset);
+  [categoryBuf, offset]    = readBytes(buf, offset);
+  [endpointBuf, offset]    = readBytes(buf, offset);
   [pricingModelBuf, offset] = readBytes(buf, offset);
-  void pricingModelBuf; // not mapped to ServiceDescriptor
-  [price, offset] = readBigUint(buf, offset);
-  [metadataBuf, offset] = readBytes(buf, offset);
-  [stake, offset] = readBigUint(buf, offset);
-  void stake; // stored on-chain, not in ServiceDescriptor
-  [active, offset] = readBool(buf, offset);
-  [registeredAt] = readU64(buf, offset);
-  void registeredAt; // not in ServiceDescriptor
+  void pricingModelBuf;
+  [price, offset]          = readBigUint(buf, offset);
+  [metadataBuf, offset]    = readBytes(buf, offset);
+  [stake, offset]          = readBigUint(buf, offset);
+  void stake;
+  [active, offset]         = readBool(buf, offset);
+  [registeredAt]           = readU64(buf, offset);
+  void registeredAt;
 
   return {
     serviceId,
-    name: nameBuf.toString("utf8"),
-    category: categoryBuf.toString("utf8") as ServiceCategory,
-    description: "",
+    name:         nameBuf.toString("utf8"),
+    category:     categoryBuf.toString("utf8") as ServiceCategory,
+    description:  "",
     pricePerCall: price.toString(),
-    endpoint: endpointBuf.toString("utf8"),
-    inputSchema: {},
+    endpoint:     endpointBuf.toString("utf8"),
+    inputSchema:  {},
     outputSchema: {},
     maxLatencyMs: 0,
     metadataHash: metadataBuf.toString("utf8"),
@@ -248,7 +294,7 @@ export class AgentBazaarSDK {
   // ── Provider: Register a service ──────────────────────────────────────────
   async registerService(
     signerAddress: string,
-    descriptor: ServiceDescriptor
+    descriptor: ServiceDescriptor,
   ): Promise<string> {
     const args = [
       descriptor.serviceId,
@@ -279,33 +325,37 @@ export class AgentBazaarSDK {
   /**
    * Discovers services registered on-chain.
    *
-   * LIMITATION: The registry contract does not expose a global enumeration
-   * endpoint (no getAllServices / getServicesByCategory view). Global discovery
-   * without a provider address is therefore NOT supported by the current contract.
+   * CONTRACT LIMITATION: The registry contract does NOT expose a global
+   * enumeration view (no getAllServices / getServicesByCategory endpoint).
+   * Global discovery without a provider address is therefore unsupported.
    *
-   * When `provider` (bech32) is given:
-   *   1. Calls getServicesByProvider(provider) → variadic<bytes> (service IDs)
-   *   2. For each service_id, calls getService(id) → optional<ServiceRecord>
-   *   3. Decodes each ServiceRecord and maps to ServiceDescriptor
-   *   4. Optionally filters by `category` in TypeScript
+   * Usage:
+   *   sdk.discoverServices(undefined, "erd1provider...")         // all services by provider
+   *   sdk.discoverServices("compute",  "erd1provider...")        // filtered by category
+   *   sdk.discoverServices()                                     // returns [] + console.warn
    *
-   * When only `category` is given (no provider), returns [] with a console.warn.
+   * Flow when provider is given:
+   *   1. getServicesByProvider(providerHex) → variadic<bytes> (list of service_id)
+   *   2. for each id: getService(idHex) → optional<ServiceRecord>
+   *   3. decodeServiceRecord → ServiceDescriptor
+   *   4. optional TypeScript filter by category
    */
   async discoverServices(
     category?: ServiceCategory,
-    provider?: string
+    provider?: string,
   ): Promise<ServiceDescriptor[]> {
     if (!provider) {
       console.warn(
         "[AgentBazaar] discoverServices: global service enumeration is not supported " +
-          "by the registry contract. Pass a provider address (bech32) to list services by provider."
+          "by the registry contract. Pass a provider address (bech32) to list services.",
       );
       return [];
     }
 
     try {
-      // Step 1: get all service IDs for this provider
       const providerHex = Address.fromBech32(provider).hex();
+
+      // Step 1: fetch service IDs for this provider
       const idsResp = await fetch(`${this.config.networkUrl}/vm-values/query`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -315,13 +365,13 @@ export class AgentBazaarSDK {
           args: [providerHex],
         }),
       });
-      const idsData = await idsResp.json() as { data?: { data?: { returnData?: string[] } } };
-      const serviceIdEntries: string[] =
-        idsData?.data?.data?.returnData ?? [];
-
+      const idsData = (await idsResp.json()) as {
+        data?: { data?: { returnData?: string[] } };
+      };
+      const serviceIdEntries: string[] = idsData?.data?.data?.returnData ?? [];
       if (serviceIdEntries.length === 0) return [];
 
-      // Step 2: for each service_id (base64 bytes), call getService
+      // Step 2: fetch and decode each ServiceRecord
       const results: ServiceDescriptor[] = [];
       for (const idBase64 of serviceIdEntries) {
         const idHex = Buffer.from(idBase64, "base64").toString("hex");
@@ -334,24 +384,23 @@ export class AgentBazaarSDK {
             args: [idHex],
           }),
         });
-        const svcData = await svcResp.json() as { data?: { data?: { returnData?: string[] } } };
+        const svcData = (await svcResp.json()) as {
+          data?: { data?: { returnData?: string[] } };
+        };
         const returnData = svcData?.data?.data?.returnData ?? [];
-        if (returnData.length === 0) continue; // optional<ServiceRecord> empty → not found
+        // optional<ServiceRecord>: empty returnData means service not found
+        if (returnData.length === 0) continue;
 
-        // getService returns optional<ServiceRecord>; first returnData element is the encoded struct
         const serviceId = Buffer.from(idBase64, "base64").toString("utf8");
         try {
-          const descriptor = decodeServiceRecord(serviceId, returnData[0]);
-          results.push(descriptor);
+          results.push(decodeServiceRecord(serviceId, returnData[0]));
         } catch (e) {
-          console.error(`[AgentBazaar] decodeServiceRecord failed for ${serviceId}:`, e);
+          console.error(`[AgentBazaar] decodeServiceRecord failed for '${serviceId}':`, e);
         }
       }
 
-      // Step 3: optional category filter in TypeScript
-      return category
-        ? results.filter((s) => s.category === category)
-        : results;
+      // Step 3: optional category filter (TypeScript-side, not on-chain)
+      return category ? results.filter((s) => s.category === category) : results;
     } catch (e) {
       console.error("[AgentBazaar] discoverServices error:", e);
       return [];
@@ -361,9 +410,9 @@ export class AgentBazaarSDK {
   // ── Consumer: Request a quote ─────────────────────────────────────────────
   async requestQuote(
     serviceId: string,
-    _inputPayload: Record<string, unknown>
+    _inputPayload: Record<string, unknown>,
   ): Promise<QuoteResponse> {
-    const service = await this.getService(serviceId);
+    const service = await this.getServiceById(serviceId);
     return {
       quoteId: `quote-${serviceId}-${Date.now()}`,
       price: service?.pricePerCall ?? "0",
@@ -376,28 +425,25 @@ export class AgentBazaarSDK {
   async validateMandate(
     mandate: MandateConfig,
     serviceId: string,
-    price: string
+    price: string,
   ): Promise<{ valid: boolean; reason?: string }> {
-    if (Date.now() > mandate.expiresAt) {
+    if (Date.now() > mandate.expiresAt)
       return { valid: false, reason: "Mandate expired" };
-    }
-    if (BigInt(price) > BigInt(mandate.maxSpendPerTask)) {
+    if (BigInt(price) > BigInt(mandate.maxSpendPerTask))
       return { valid: false, reason: "Price exceeds maxSpendPerTask mandate" };
-    }
-    const service = await this.getService(serviceId);
-    if (service && !mandate.allowedCategories.includes(service.category)) {
+    const service = await this.getServiceById(serviceId);
+    if (service && !mandate.allowedCategories.includes(service.category))
       return { valid: false, reason: `Category ${service.category} not in mandate` };
-    }
     return { valid: true };
   }
 
-  // ── Consumer: Execute a task (buy + execute + report) ─────────────────────
+  // ── Consumer: Execute a task ───────────────────────────────────────────────
   async executeTask(
     consumerAddress: string,
     serviceId: string,
     inputPayload: Record<string, unknown>,
     priceEgld: string,
-    mandate?: MandateConfig
+    mandate?: MandateConfig,
   ): Promise<TaskResult> {
     const start = Date.now();
 
@@ -406,21 +452,18 @@ export class AgentBazaarSDK {
       if (!valid) throw new Error(`AP2 mandate rejected: ${reason}`);
     }
 
-    const service = await this.getService(serviceId);
+    const service = await this.getServiceById(serviceId);
     if (!service) throw new Error(`Service not found: ${serviceId}`);
 
     const taskId = `task-${serviceId}-${Date.now()}`;
-
     const inputHash = await this.hashObject(inputPayload);
     const escrowArgs = [serviceId, service.provider ?? "", inputHash]
       .map((a) => Buffer.from(a).toString("hex"))
       .join("@");
-    const escrowTxData = `createTask@${escrowArgs}`;
-    console.log(`[AgentBazaar] Escrow tx: ${escrowTxData}`);
+    console.log(`[AgentBazaar] Escrow tx: createTask@${escrowArgs}`);
 
     const result = await this.callMCPEndpoint(service.endpoint, inputPayload, taskId);
     const resultHash = await this.hashObject(result);
-
     const releaseArgs = [
       Buffer.from(taskId).toString("hex"),
       Buffer.from(resultHash).toString("hex"),
@@ -428,7 +471,6 @@ export class AgentBazaarSDK {
     console.log(`[AgentBazaar] Release tx: releaseTask@${releaseArgs}`);
 
     const latencyMs = Date.now() - start;
-
     const repArgs = [
       Buffer.from(consumerAddress).toString("hex"),
       latencyMs.toString(16).padStart(16, "0"),
@@ -441,13 +483,9 @@ export class AgentBazaarSDK {
   // ── Provider: Register MCP handler ───────────────────────────────────────
   createMCPHandler(
     descriptor: ServiceDescriptor,
-    handler: (input: Record<string, unknown>, taskId: string) => Promise<unknown>
+    handler: (input: Record<string, unknown>, taskId: string) => Promise<unknown>,
   ): { path: string; descriptor: ServiceDescriptor; handle: typeof handler } {
-    return {
-      path: `/mcp/${descriptor.serviceId}`,
-      descriptor,
-      handle: handler,
-    };
+    return { path: `/mcp/${descriptor.serviceId}`, descriptor, handle: handler };
   }
 
   // ── Reputation: Get agent score ───────────────────────────────────────────
@@ -462,7 +500,9 @@ export class AgentBazaarSDK {
           args: [Address.fromBech32(agentAddress).hex()],
         }),
       });
-      const data = await resp.json() as { data?: { data?: { returnData?: string[] } } };
+      const data = (await resp.json()) as {
+        data?: { data?: { returnData?: string[] } };
+      };
       return this.decodeReputation(agentAddress, data);
     } catch {
       return this.reputationFallback(agentAddress);
@@ -474,7 +514,7 @@ export class AgentBazaarSDK {
   private async callMCPEndpoint(
     endpoint: string,
     input: Record<string, unknown>,
-    taskId: string
+    taskId: string,
   ): Promise<unknown> {
     const resp = await fetch(endpoint, {
       method: "POST",
@@ -486,11 +526,16 @@ export class AgentBazaarSDK {
       },
       body: JSON.stringify({ taskId, input }),
     });
-    if (!resp.ok) throw new Error(`MCP endpoint error: ${resp.status} ${resp.statusText}`);
+    if (!resp.ok)
+      throw new Error(`MCP endpoint error: ${resp.status} ${resp.statusText}`);
     return resp.json();
   }
 
-  private async getService(serviceId: string): Promise<ServiceDescriptor | null> {
+  /**
+   * Fetch a single ServiceDescriptor directly from the registry contract.
+   * Returns null when the service does not exist (optional<ServiceRecord> empty).
+   */
+  private async getServiceById(serviceId: string): Promise<ServiceDescriptor | null> {
     try {
       const idHex = Buffer.from(serviceId).toString("hex");
       const resp = await fetch(`${this.config.networkUrl}/vm-values/query`, {
@@ -502,7 +547,9 @@ export class AgentBazaarSDK {
           args: [idHex],
         }),
       });
-      const data = await resp.json() as { data?: { data?: { returnData?: string[] } } };
+      const data = (await resp.json()) as {
+        data?: { data?: { returnData?: string[] } };
+      };
       const returnData = data?.data?.data?.returnData ?? [];
       if (returnData.length === 0) return null;
       return decodeServiceRecord(serviceId, returnData[0]);
@@ -521,12 +568,11 @@ export class AgentBazaarSDK {
 
   private decodeReputation(
     agent: string,
-    data: { data?: { data?: { returnData?: string[] } } }
+    data: { data?: { data?: { returnData?: string[] } } },
   ): ReputationScore {
     const returnData = data?.data?.data?.returnData ?? [];
-    if (returnData.length === 0 || !returnData[0]) {
+    if (returnData.length === 0 || !returnData[0])
       return this.reputationFallback(agent);
-    }
     try {
       return decodeReputationStruct(agent, returnData[0]);
     } catch (e) {
@@ -546,11 +592,6 @@ export class AgentBazaarSDK {
       stakeEgld: "0",
       lastUpdated: 0,
     };
-  }
-
-  /** @deprecated Use discoverServices(category, provider) instead. */
-  private decodeServices(_data: unknown): ServiceDescriptor[] {
-    return [];
   }
 }
 
