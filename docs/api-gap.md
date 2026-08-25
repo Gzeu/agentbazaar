@@ -27,14 +27,14 @@ Audit 2026-08-25 · actualizat post-PR #5/#6/#7.
 | Analytics | `/analytics` | useAnalytics (dashboard/categories/volume) | ✅ |
 | Leaderboard | `/leaderboard` | reputationApi.leaderboard | ✅ |
 | Live events feed | `/events` | useEvents (SDK EventsClient polling) | ✅ |
-| Wallet | — | WalletContext | ⚠️ degraded (sdk-dapp broken) |
+| Wallet | — | WalletContext (WebWallet + Extension + dev login) | ✅ WalletConnect removed |
 
 ## Goluri rămase (open)
 
-1. **Wallet signing real** — sdk-dapp deep-imports nu există în v2.40; opțiuni: migrare @multiversx/sdk-core signing + WalletConnectV2Provider direct (parțial în ConnectModal) sau sdk-dapp v5
-2. **Env vars Vercel/WalletConnect** — config din dashboard (Root Directory confirmat, WalletConnect ID lipsă)
+1. **Wallet signing real pe chain** — WebWallet/Extension conectează adresa, dar sdk-dapp v2.40 deep-imports sunt ruinate. Pentru semnare TX reale e nevoie de migrare către `@multiversx/sdk-core` + `WalletConnectV2Provider` direct, sau upgrade sdk-dapp → v5. Până atunci, backendul rulează în **mock mode** (`REGISTRY_CONTRACT_ADDRESS not set`) și UI-ul folosește JWT pentru auth.
+2. **Env vars Vercel/WalletConnect** — eliminat (nu mai e nevoie de projectId). Rămâne doar `NEXT_PUBLIC_BACKEND_URL` configurat pe Vercel (sau implicit localhost:3001 dev).
 
-> Notă: `sdk-wallet-connect-provider` are un fallback funcțional în `ConnectModal` (deschide xPortal cu WC URI) pentru demo dev, deci conectarea funcționează. Wallet signing real (message signing pentru proof) rămâne blocat până la migrare sdk.
+> Conectarea wallet (prin WebWallet redirect / extensie) setează adresa în `WalletContext`, iar JWT-ul API este emis automat. Pentru dev fără wallet, `ConnectModal` are „Quick dev login".
 
 ## Rezolvat (din auditul anterior)
 
@@ -47,6 +47,12 @@ Audit 2026-08-25 · actualizat post-PR #5/#6/#7.
 - Backend: POST /auth/login (public) returnează 7d JWT; global JwtAuthGuard protejează toate rute API; /health public
 - Frontend: `useAuth` (login/logout/token), `WalletContext` emite automat JWT la conectare wallet, `Authorization: Bearer` header în api.ts
 - Test: vitest 7/7, tsc clean, backend smoke verificat (login→token, /health 200, /services 401/200)
+
+### PR #11 — WalletConnect eliminat + dev login
+- `ConnectModal`: eliminat butonul xPortal/WalletConnect; rămân **WebWallet** (redirect) + **Browser Extension** (DeFi Wallet) + **Quick dev login** (event `dev-address`)
+- `WalletContext`: listener pentru `dev-address`; auto-issued JWT rămâne la adresa setată; disconnect curăță token
+- WebWallet și Extension folosesc sdk-dapp v2.40 (degraded mode fără full signing chain)
+- Nu mai este nevoie de `NEXT_PUBLIC_WALLETCONNECT_PROJECT_ID` în Vercel
 
 - ~~dispute/refund/complete UI~~ → PR #5
 - ~~analytics~~ → PR #6
