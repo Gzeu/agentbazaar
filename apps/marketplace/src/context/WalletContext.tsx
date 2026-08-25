@@ -13,13 +13,15 @@ import {
   useEffect,
   ReactNode,
 } from "react";
+import { servicesApi, auth as apiAuth } from "@/lib/api";
 
 interface WalletState {
   address: string | null;
   balance: string; // formatted EGLD, e.g. "1.23"
   connected: boolean;
   connecting: boolean;
-  showModal: boolean;
+    showModal: boolean;
+  token: string | null;
   connect: () => void;
   openModal: () => void;
   closeModal: () => void;
@@ -33,7 +35,8 @@ const WalletContext = createContext<WalletState>({
   balance: "0",
   connected: false,
   connecting: false,
-  showModal: false,
+    showModal: false,
+  token: null,
   connect: () => {},
   openModal: () => {},
   closeModal: () => {},
@@ -58,6 +61,28 @@ export function WalletProvider({ children }: { children: ReactNode }) {
   const [connecting, setConnecting] = useState(false);
   const [showModal, setShowModal] = useState(false);
   const [network, setNetwork] = useState("devnet");
+  const [token, setToken] = useState<string | null>(apiAuth.getToken());
+
+  // When a wallet address appears, mint (or reuse) an API JWT so all
+  // backend calls are authenticated. No-op in SSR / disconnected mode.
+  useEffect(() => {
+    if (!address || token) return;
+    let cancelled = false;
+    void (async () => {
+      try {
+        const res = await servicesApi.authLogin(address, true);
+        if (!cancelled && res?.access_token) {
+          apiAuth.setToken(res.access_token);
+          setToken(res.access_token);
+        }
+      } catch (e) {
+        console.error("[WalletContext] JWT login failed:", e);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [address, token]);
 
   // Hydrate from sdk-dapp store after client mount
   useEffect(() => {
@@ -113,6 +138,9 @@ export function WalletProvider({ children }: { children: ReactNode }) {
     } catch {
       setAddress(null);
       setBalance("0");
+    } finally {
+      apiAuth.clearToken();
+      setToken(null);
     }
   }, []);
 
@@ -128,6 +156,7 @@ export function WalletProvider({ children }: { children: ReactNode }) {
         connected: !!address,
         connecting,
         showModal,
+        token,
         openModal,
         connect,
         closeModal,

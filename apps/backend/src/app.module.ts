@@ -1,9 +1,11 @@
 import { Module, OnModuleInit } from '@nestjs/common';
+import { APP_GUARD } from '@nestjs/core';
 import { ModuleRef } from '@nestjs/core';
 import { ConfigModule, ConfigService } from '@nestjs/config';
 import { EventEmitterModule } from '@nestjs/event-emitter';
 import { ScheduleModule } from '@nestjs/schedule';
-import { AuthModule }      from './auth/auth.module';
+import { AuthModule } from './auth/auth.module';
+import { JwtAuthGuard } from './auth/jwt.guard';
 import { MultiversxModule } from './multiversx/multiversx.module';
 import { ServicesModule }  from './services/services.module';
 import { TasksModule }     from './tasks/tasks.module';
@@ -30,7 +32,10 @@ import { McpContractService } from './multiversx/mcp-contract.service';
     DiscoveryModule,
     HealthModule,
     EventsModule,
-    AnalyticsModule,
+        AnalyticsModule,
+  ],
+  providers: [
+    { provide: APP_GUARD, useClass: JwtAuthGuard },
   ],
 })
 export class AppModule implements OnModuleInit {

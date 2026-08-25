@@ -7,9 +7,27 @@ export const BACKEND_URL =
 
 const BASE = `${BACKEND_URL}/api/v1`;
 
+const TOKEN_KEY = "ab:token";
+export const auth = {
+  getToken: () =>
+    typeof window !== "undefined"
+      ? window.localStorage.getItem(TOKEN_KEY)
+      : null,
+  setToken: (t: string) => {
+    if (typeof window !== "undefined") window.localStorage.setItem(TOKEN_KEY, t);
+  },
+  clearToken: () => {
+    if (typeof window !== "undefined") window.localStorage.removeItem(TOKEN_KEY);
+  },
+};
+
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
+  const tok = auth.getToken();
   const res = await fetch(`${BASE}${path}`, {
-    headers: { "Content-Type": "application/json" },
+    headers: {
+      "Content-Type": "application/json",
+      ...(tok ? { Authorization: `Bearer ${tok}` } : {}),
+    },
     ...init,
   });
   if (!res.ok) {
@@ -130,6 +148,16 @@ export interface RegisterServicePayload {
 }
 
 export const servicesApi = {
+  authLogin(address: string, providerMode = false) {
+    return request<{ access_token: string; token_type: "Bearer"; role: string }>(
+      `/auth/login`,
+      {
+        method: "POST",
+        body: JSON.stringify({ address, providerMode }),
+      },
+    );
+  },
+
   register(payload: RegisterServicePayload) {
     return request<{ id: string }>(`/services`, {
       method: "POST",
