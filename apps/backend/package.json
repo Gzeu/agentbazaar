@@ -1,6 +1,6 @@
 {
   "name": "@agentbazaar/backend",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "AgentBazaar Orchestration API - NestJS",
   "scripts": {
     "build": "tsc -p tsconfig.json",
@@ -30,7 +30,9 @@
     "reflect-metadata": "^0.2.2",
     "rxjs": "^7.8.1",
     "socket.io": "^4.7.5",
-    "uuid": "^9.0.1"
+    "uuid": "^9.0.1",
+    "@multiversx/sdk-wallet": "^4.4.0",
+    "@modelcontextprotocol/sdk": "^1.0.0"
   },
   "devDependencies": {
     "@nestjs/cli": "^10.3.2",
