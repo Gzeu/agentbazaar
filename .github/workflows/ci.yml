@@ -105,7 +105,7 @@ jobs:
         run: npm run lint || true
 
       - name: Build
-        run: npm run build --workspace @agentbazaar/backend
+        run: npm run build --workspace @agentbazaar/marketplace
         env:
           NEXT_PUBLIC_BACKEND_URL: http://localhost:3001
           NEXT_PUBLIC_MVX_ENVIRONMENT: devnet
