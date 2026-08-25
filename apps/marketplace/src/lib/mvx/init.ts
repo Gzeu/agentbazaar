@@ -19,7 +19,7 @@ export async function initMvx(): Promise<void> {
   initialized = true;
 
   // Dynamic import keeps sdk-dapp out of the server bundle
-  const { initApp } = await import("@multiversx/sdk-dapp/out/utils/app/initApp");
+  const { initApp } = await import(/* webpackIgnore: true */ "@multiversx/sdk-dapp/out/utils/app/initApp" as string);
 
   await initApp({
     storage: {

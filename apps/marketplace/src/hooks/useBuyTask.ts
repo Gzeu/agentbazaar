@@ -85,7 +85,7 @@ export function useBuyTask() {
             // Sign via sdk-dapp signTransactions
             setStep("signing");
             const { signTransactions } = await import(
-              "@multiversx/sdk-dapp/out/hooks/transactions/useSignTransactions"
+              /* webpackIgnore: true */ "@multiversx/sdk-dapp/out/hooks/transactions/useSignTransactions" as string
             );
 
             const signedTx = await new Promise<typeof tx>((resolve, reject) => {
@@ -154,7 +154,7 @@ async function sha256(input: string): Promise<string> {
 
 async function getNetworkConfig(): Promise<{ nonce: number }> {
   try {
-    const { getStore } = await import("@multiversx/sdk-dapp/out/reduxStore/store");
+    const { getStore } = await import(/* webpackIgnore: true */ "@multiversx/sdk-dapp/out/reduxStore/store" as string);
     const store = getStore();
     const state = store?.getState();
     const nonce = state?.account?.account?.nonce ?? 0;

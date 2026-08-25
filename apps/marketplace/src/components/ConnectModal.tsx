@@ -54,9 +54,12 @@ export function ConnectModal({ onClose }: ConnectModalProps) {
         },
         MVX_ENVIRONMENT === "mainnet" ? "1" : "D",
         WALLETCONNECT_V2_PROJECT_ID,
-        [{ topic: "relay", value: "wss://relay.walletconnect.com" }]
+        "wss://relay.walletconnect.com"
       );
-      const wcUri = await provider.connect();
+      const connectResult = (await provider.connect()) as
+        | { uri?: string; approval?: unknown }
+        | string;
+      const wcUri = typeof connectResult === "string" ? connectResult : connectResult?.uri;
       if (wcUri) {
         // In production: show QR code with wcUri
         console.log("[ConnectModal] WC URI:", wcUri);

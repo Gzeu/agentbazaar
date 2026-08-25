@@ -20,6 +20,7 @@ interface WalletState {
   connected: boolean;
   connecting: boolean;
   showModal: boolean;
+  connect: () => void;
   openModal: () => void;
   closeModal: () => void;
   disconnect: () => void;
@@ -33,6 +34,7 @@ const WalletContext = createContext<WalletState>({
   connected: false,
   connecting: false,
   showModal: false,
+  connect: () => {},
   openModal: () => {},
   closeModal: () => {},
   disconnect: () => {},
@@ -64,10 +66,10 @@ export function WalletProvider({ children }: { children: ReactNode }) {
     (async () => {
       try {
         const { getAccountProvider } = await import(
-          "@multiversx/sdk-dapp/out/providers/accountProvider"
+          /* webpackIgnore: true */ "@multiversx/sdk-dapp/out/providers/accountProvider" as string
         );
         const { getStore } = await import(
-          "@multiversx/sdk-dapp/out/reduxStore/store"
+          /* webpackIgnore: true */ "@multiversx/sdk-dapp/out/reduxStore/store" as string
         );
         const store = getStore();
         if (!store) return;
@@ -99,11 +101,13 @@ export function WalletProvider({ children }: { children: ReactNode }) {
 
   const openModal  = useCallback(() => setShowModal(true),  []);
   const closeModal = useCallback(() => setShowModal(false), []);
+  /** Connect opens the wallet modal (xPortal / extension / WebWallet). */
+  const connect    = useCallback(() => setShowModal(true),  []);
 
   const disconnect = useCallback(async () => {
     try {
       const { logout } = await import(
-        "@multiversx/sdk-dapp/out/utils/logout"
+        /* webpackIgnore: true */ "@multiversx/sdk-dapp/out/utils/logout" as string
       );
       await logout("/");
     } catch {
@@ -125,6 +129,7 @@ export function WalletProvider({ children }: { children: ReactNode }) {
         connecting,
         showModal,
         openModal,
+        connect,
         closeModal,
         disconnect,
         shortAddress,

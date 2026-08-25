@@ -1,5 +1,5 @@
 {
-  "name": "@agentbazaar/sdk-ts",
+  "name": "@agentbazaar/sdk",
   "version": "0.1.0",
   "description": "AgentBazaar TypeScript SDK — AI Agent marketplace on MultiversX",
   "main": "dist/index.js",

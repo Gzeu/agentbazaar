@@ -81,13 +81,13 @@ jobs:
       - name: Test
         run: npm test
 
-  # --------------------------------------------------------- Next.js frontend
+  # --------------------------------------------------------- Next.js marketplace
   frontend:
     name: Frontend (Next.js)
     runs-on: ubuntu-latest
     defaults:
       run:
-        working-directory: apps/frontend/temp-frontend
+        working-directory: apps/marketplace
     steps:
       - uses: actions/checkout@v4
 
@@ -95,10 +95,14 @@ jobs:
         with:
           node-version: ${{ env.NODE_VERSION }}
           cache: npm
-          cache-dependency-path: apps/frontend/temp-frontend/package.json
+          cache-dependency-path: apps/marketplace/package.json
 
-      - name: Install deps
+      - name: Install deps (workspace root)
         run: npm install
+
+      - name: Build TS SDK
+        run: npm run build
+        working-directory: packages/sdk-ts
 
       - name: Lint
         run: npm run lint || true
@@ -107,11 +111,9 @@ jobs:
         run: npm run build
         env:
           NEXT_PUBLIC_BACKEND_URL: http://localhost:3001
-          NEXT_PUBLIC_MVX_NETWORK: devnet
-          NEXT_PUBLIC_WC_PROJECT_ID: placeholder
-          NEXT_PUBLIC_REGISTRY_CONTRACT: ''
-          NEXT_PUBLIC_ESCROW_CONTRACT: ''
-          NEXT_PUBLIC_REPUTATION_CONTRACT: ''
+          NEXT_PUBLIC_MVX_ENVIRONMENT: devnet
+          NEXT_PUBLIC_MVX_API_URL: https://devnet-api.multiversx.com
+          NEXT_PUBLIC_WALLETCONNECT_PROJECT_ID: placeholder
 
   # --------------------------------------------------------- Summary
   all-green:
