@@ -14,6 +14,8 @@ import {
   ReactNode,
 } from "react";
 import { servicesApi, auth as apiAuth } from "@/lib/api";
+import { useSigner, type ProviderType } from "@/hooks/useSigner";
+import type { Transaction, SignableMessage } from "@multiversx/sdk-core";
 
 interface WalletState {
   address: string | null;
@@ -28,6 +30,17 @@ interface WalletState {
   disconnect: () => void;
   shortAddress: string;
   network: string;
+  signer: {
+    providerType: ProviderType | null;
+    signMessage: (msg: string) => Promise<SignableMessage>;
+    signTransaction: (tx: Transaction) => Promise<Transaction>;
+    connectExtension: () => Promise<string>;
+    connectWebWallet: (cb?: string) => Promise<unknown>;
+    lastSignature: string | null;
+  };
+  // Internal setters exposed for components that need to push state
+  // (e.g. ConnectModal after Extension login).
+  setAddress: (addr: string) => void;
 }
 
 const WalletContext = createContext<WalletState>({
@@ -43,6 +56,15 @@ const WalletContext = createContext<WalletState>({
   disconnect: () => {},
   shortAddress: "",
   network: "devnet",
+  signer: {
+    providerType: null,
+    signMessage: async () => { throw new Error("WalletProvider not initialised"); },
+    signTransaction: async () => { throw new Error("WalletProvider not initialised"); },
+    connectExtension: async () => { throw new Error("WalletProvider not initialised"); },
+    connectWebWallet: async () => { throw new Error("WalletProvider not initialised"); },
+    lastSignature: null,
+  },
+  setAddress: () => {},
 });
 
 function formatBalance(raw: string): string {
@@ -62,6 +84,7 @@ export function WalletProvider({ children }: { children: ReactNode }) {
   const [showModal, setShowModal] = useState(false);
   const [network, setNetwork] = useState("devnet");
   const [token, setToken] = useState<string | null>(apiAuth.getToken());
+  const signer = useSigner();
 
   // When a wallet address appears, mint (or reuse) an API JWT so all
   // backend calls are authenticated. No-op in SSR / disconnected mode.
@@ -179,6 +202,15 @@ export function WalletProvider({ children }: { children: ReactNode }) {
         disconnect,
         shortAddress,
         network,
+        signer: {
+          providerType: signer.providerType,
+          signMessage: signer.signMessage,
+          signTransaction: signer.signTransaction,
+          connectExtension: signer.connectExtension,
+          connectWebWallet: signer.connectWebWallet,
+          lastSignature: signer.lastSignature,
+        },
+        setAddress,
       }}
     >
       {children}
