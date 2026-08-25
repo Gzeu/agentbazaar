@@ -1,13 +1,8 @@
 "use client";
 import { useState } from "react";
 import { useWallet } from "@/context/WalletContext";
-
-const TASK_HISTORY = [
-  { id: "task-f1a2", service: "DataFetch Pro",    provider: "erd1abc…", status: "completed", amount: "0.001 EGLD",  latency: "198ms", ts: "3m ago" },
-  { id: "task-b3c4", service: "ML Compute Node",  provider: "erd1def…", status: "completed", amount: "0.005 EGLD",  latency: "720ms", ts: "18m ago" },
-  { id: "task-d5e6", service: "EGLD Price Oracle", provider: "erd1jkl…", status: "completed", amount: "0.0005 EGLD", latency: "95ms",  ts: "35m ago" },
-  { id: "task-g7h8", service: "Workflow Runner",   provider: "erd1ghi…", status: "pending",   amount: "0.002 EGLD",  latency: "—",     ts: "1m ago" },
-];
+import { useMyTasks } from "@/hooks/useMyTasks";
+import { TaskActions } from "@/components/tasks/TaskActions";
 
 const MANDATES = [
   { id: "mandate-01", service: "DataFetch Pro",  dailyCap: "0.05 EGLD",  used: "0.012 EGLD", categories: ["data"],    status: "active",  expires: "30d" },
@@ -17,6 +12,7 @@ const MANDATES = [
 export default function ConsumerPage() {
   const { connected, connect, shortAddress } = useWallet();
   const [tab, setTab] = useState<"tasks" | "mandates" | "spending">("tasks");
+  const { tasks: TASK_HISTORY, total, loading, error, applyUpdate } = useMyTasks({ limit: 50 });
 
   if (!connected) {
     return (
@@ -31,8 +27,9 @@ export default function ConsumerPage() {
     );
   }
 
+  const weiToEgld = (wei: string) => (Number(wei) / 1e18).toFixed(4);
   const totalSpent = TASK_HISTORY.filter(t => t.status === "completed")
-    .reduce((acc, t) => acc + parseFloat(t.amount), 0).toFixed(4);
+    .reduce((acc, t) => acc + Number(t.maxBudget) / 1e18, 0).toFixed(4);
 
   return (
     <main className="min-h-screen px-6 py-10">
@@ -47,7 +44,7 @@ export default function ConsumerPage() {
         {/* Stats */}
         <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
           {[
-            { label: "Tasks Total", value: TASK_HISTORY.length.toString() },
+            { label: "Tasks Total", value: String(total || TASK_HISTORY.length) },
             { label: "Completed", value: TASK_HISTORY.filter(t => t.status === "completed").length.toString() },
             { label: "Total Spent", value: `${totalSpent} EGLD` },
             { label: "Active Mandates", value: MANDATES.length.toString() },
@@ -80,20 +77,35 @@ export default function ConsumerPage() {
         {/* Task History */}
         {tab === "tasks" && (
           <div className="space-y-3">
+            {loading && (
+              <div className="card text-center text-sm" style={{ color: "var(--color-text-muted)" }}>
+                Loading tasks…
+              </div>
+            )}
+            {error && (
+              <div className="card text-xs" style={{ color: "var(--color-danger)" }}>
+                ⚠ {error} — showing cached data if available.
+              </div>
+            )}
+            {!loading && TASK_HISTORY.length === 0 && (
+              <div className="card text-center text-sm" style={{ color: "var(--color-text-muted)" }}>
+                No tasks yet. Buy a service from the Marketplace to get started.
+              </div>
+            )}
             {TASK_HISTORY.map((t) => (
               <div key={t.id} className="card flex flex-col sm:flex-row sm:items-center justify-between gap-3">
                 <div className="space-y-0.5">
                   <div className="flex items-center gap-2">
                     <span className="font-mono text-xs" style={{ color: "var(--color-text-muted)" }}>{t.id}</span>
-                    <span className={`badge ${t.status === "completed" ? "badge-success" : t.status === "pending" ? "badge-warning" : "badge-danger"}`}>{t.status}</span>
+                    <span className={`badge ${t.status === "completed" || t.status === "refunded" ? "badge-success" : t.status === "pending" || t.status === "running" ? "badge-warning" : "badge-danger"}`}>{t.status}</span>
+                    {t.onChainVerified && <span className="badge badge-success">⛓ on-chain</span>}
                   </div>
-                  <div className="text-sm" style={{ color: "var(--color-text)" }}>{t.service}</div>
-                  <div className="text-xs" style={{ color: "var(--color-text-muted)" }}>provider: {t.provider}</div>
+                  <div className="text-xs font-mono" style={{ color: "var(--color-text-muted)" }}>provider: {t.providerAddress.slice(0, 14)}…</div>
                 </div>
-                <div className="flex gap-5 text-right text-xs">
-                  <div><div style={{ color: "var(--color-primary)" }}>{t.amount}</div><div style={{ color: "var(--color-text-muted)" }}>amount</div></div>
-                  <div><div style={{ color: "var(--color-text)" }}>{t.latency}</div><div style={{ color: "var(--color-text-muted)" }}>latency</div></div>
-                  <div><div style={{ color: "var(--color-text-muted)" }}>{t.ts}</div></div>
+                <div className="flex flex-wrap items-center gap-5 text-right text-xs">
+                  <div><div style={{ color: "var(--color-primary)" }}>{weiToEgld(t.maxBudget)} EGLD</div><div style={{ color: "var(--color-text-muted)" }}>budget</div></div>
+                  <div><div style={{ color: "var(--color-text)" }}>{t.latencyMs != null ? `${t.latencyMs}ms` : "—"}</div><div style={{ color: "var(--color-text-muted)" }}>latency</div></div>
+                  <TaskActions task={t} onUpdated={applyUpdate} />
                 </div>
               </div>
             ))}
