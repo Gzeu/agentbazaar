@@ -136,4 +136,50 @@ export const servicesApi = {
       body: JSON.stringify(payload),
     });
   },
+
+  list(opts: { limit?: number } = {}) {
+    return request<{ data: ServiceRecord[]; total: number }>(
+      `/services?limit=${opts.limit ?? 100}`,
+    );
+  },
+};
+
+export interface ServiceRecord {
+  id: string;
+  name: string;
+  description?: string;
+  category: string;
+  version?: string;
+  providerAddress: string;
+  endpoint: string;
+  pricingModel?: string;
+  priceAmount?: string;
+  priceToken?: string;
+  maxLatencyMs?: number;
+  uptimeGuarantee?: number;
+  tags?: string[];
+  active: boolean;
+  reputationScore?: number;   // bps 0-10000
+  totalTasks?: number;
+  successfulTasks?: number;
+}
+
+export interface ReputationEntry {
+  agentAddress: string;
+  compositeScore: number;
+  completionRate: number;
+  totalTasks: number;
+  successfulTasks: number;
+  avgLatencyMs: number;
+  slashed: boolean;
+  syncedAt?: string;
+}
+
+export const reputationApi = {
+  leaderboard(limit = 10) {
+    return request<ReputationEntry[]>(`/reputation?limit=${limit}`);
+  },
+  forAgent(address: string) {
+    return request<ReputationEntry>(`/reputation/${encodeURIComponent(address)}`);
+  },
 };
