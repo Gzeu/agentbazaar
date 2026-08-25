@@ -65,3 +65,20 @@ describe("reputationApi", () => {
     expect(String(vi.mocked(fetch).mock.calls[0][0])).toContain("/reputation?limit=5");
   });
 });
+
+describe("servicesApi.deregister", () => {
+  it("sends DELETE to service id and returns success", async () => {
+    let captured: RequestInit | undefined;
+    let calledUrl = "";
+    const fake = { success: true };
+    mockFetch((url, init) => {
+      calledUrl = String(url);
+      captured = init;
+      return jsonRes(fake);
+    });
+    const res = await servicesApi.deregister("svc-42");
+    expect(res).toEqual(fake);
+    expect(captured?.method).toBe("DELETE");
+    expect(calledUrl).toContain("/services/svc-42");
+  });
+});
