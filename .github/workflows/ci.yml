@@ -52,9 +52,6 @@ jobs:
   backend:
     name: Backend (NestJS)
     runs-on: ubuntu-latest
-    defaults:
-      run:
-        working-directory: apps/backend
     steps:
       - uses: actions/checkout@v4
 
@@ -62,16 +59,16 @@ jobs:
         with:
           node-version: ${{ env.NODE_VERSION }}
           cache: npm
-          cache-dependency-path: apps/backend/package.json
+          cache-dependency-path: package-lock.json
 
-      - name: Install deps
-        run: npm install
+      - name: Install deps (workspace root)
+        run: npm install --no-audit --no-fund
 
       - name: Lint
         run: npm run lint || true
 
       - name: Build
-        run: npm run build
+        run: npm run build --workspace @agentbazaar/backend
         env:
           MVX_API_URL: https://devnet-api.multiversx.com
           REGISTRY_CONTRACT_ADDRESS: ''
@@ -79,7 +76,7 @@ jobs:
           REPUTATION_CONTRACT_ADDRESS: ''
 
       - name: Test
-        run: npm test
+        run: npm test --workspace @agentbazaar/backend
 
   # --------------------------------------------------------- Next.js marketplace
   frontend:
@@ -108,7 +105,7 @@ jobs:
         run: npm run lint || true
 
       - name: Build
-        run: npm run build
+        run: npm run build --workspace @agentbazaar/marketplace
         env:
           NEXT_PUBLIC_BACKEND_URL: http://localhost:3001
           NEXT_PUBLIC_MVX_ENVIRONMENT: devnet

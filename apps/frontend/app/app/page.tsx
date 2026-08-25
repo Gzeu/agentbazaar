@@ -4,33 +4,39 @@ import Link from 'next/link';
 import { useServices } from '@/hooks/useServices';
 import type { Service, ServiceCategory } from '@/lib/types';
 
+// Category slugs MUST match backend enum in types.ts
 const CATEGORIES: { value: ServiceCategory | 'all'; label: string; emoji: string }[] = [
-  { value: 'all', label: 'Toate', emoji: '🌐' },
-  { value: 'data-fetching', label: 'Data', emoji: '📡' },
-  { value: 'compute-offload', label: 'Compute', emoji: '🧠' },
-  { value: 'orchestration', label: 'Orchestration', emoji: '🔗' },
-  { value: 'enrichment', label: 'Enrichment', emoji: '✨' },
-  { value: 'compliance', label: 'Compliance', emoji: '🛡️' },
-  { value: 'wallet-actions', label: 'Wallet', emoji: '💼' },
+  { value: 'all',            label: 'Toate',        emoji: '🌐' },
+  { value: 'data',           label: 'Data',         emoji: '📡' },
+  { value: 'compute',        label: 'Compute',      emoji: '🧠' },
+  { value: 'orchestration',  label: 'Orchestration',emoji: '🔗' },
+  { value: 'enrichment',     label: 'Enrichment',   emoji: '✨' },
+  { value: 'compliance',     label: 'Compliance',   emoji: '🛡️' },
+  { value: 'wallet-actions', label: 'Wallet',       emoji: '💼' },
+  { value: 'notifications',  label: 'Notifications',emoji: '🔔' },
 ];
 
 const CATEGORY_COLORS: Record<string, string> = {
-  'data-fetching': 'text-teal-400 bg-teal-500/10 border-teal-500/20',
-  'compute-offload': 'text-indigo-400 bg-indigo-500/10 border-indigo-500/20',
-  'compliance': 'text-red-400 bg-red-500/10 border-red-500/20',
-  'orchestration': 'text-amber-400 bg-amber-500/10 border-amber-500/20',
-  'enrichment': 'text-emerald-400 bg-emerald-500/10 border-emerald-500/20',
-  'wallet-actions': 'text-purple-400 bg-purple-500/10 border-purple-500/20',
-  'notifications': 'text-blue-400 bg-blue-500/10 border-blue-500/20',
+  'data':            'text-teal-400   bg-teal-500/10   border-teal-500/20',
+  'compute':         'text-indigo-400 bg-indigo-500/10 border-indigo-500/20',
+  'compliance':      'text-red-400    bg-red-500/10    border-red-500/20',
+  'orchestration':   'text-amber-400  bg-amber-500/10  border-amber-500/20',
+  'enrichment':      'text-emerald-400 bg-emerald-500/10 border-emerald-500/20',
+  'wallet-actions':  'text-purple-400 bg-purple-500/10 border-purple-500/20',
+  'notifications':   'text-blue-400   bg-blue-500/10   border-blue-500/20',
 };
 
 function ServiceCard({ s }: { s: Service }) {
-  const repPct = (s.reputationScore / 100).toFixed(1);
-  const repColor = s.reputationScore >= 9500 ? 'text-emerald-400' : s.reputationScore >= 8500 ? 'text-brand-400' : 'text-amber-400';
+  const repPct   = (s.reputationScore / 100).toFixed(1);
+  const repColor = s.reputationScore >= 9500 ? 'text-emerald-400'
+                 : s.reputationScore >= 8500 ? 'text-brand-400'
+                 : 'text-amber-400';
 
   return (
-    <Link href={`/services/${s.id}`} className="card flex flex-col gap-3 group hover:border-brand-500/40 hover:shadow-lg hover:shadow-brand-500/5 transition-all duration-200">
-      {/* Top row */}
+    <Link
+      href={`/services/${s.id}`}
+      className="card flex flex-col gap-3 group hover:border-brand-500/40 hover:shadow-lg hover:shadow-brand-500/5 transition-all duration-200"
+    >
       <div className="flex items-start justify-between gap-2">
         <span className={`badge border text-xs ${CATEGORY_COLORS[s.category] ?? 'text-dark-muted bg-dark-surface2 border-dark-border'}`}>
           {s.category}
@@ -38,20 +44,17 @@ function ServiceCard({ s }: { s: Service }) {
         <span className={`text-xs font-bold font-mono ${repColor}`}>{repPct}%</span>
       </div>
 
-      {/* Name + desc */}
       <div>
         <h3 className="font-semibold text-dark-text group-hover:text-brand-400 transition-colors line-clamp-1">{s.name}</h3>
         <p className="text-xs text-dark-muted mt-1 line-clamp-2 leading-relaxed">{s.description}</p>
       </div>
 
-      {/* Tags */}
       <div className="flex flex-wrap gap-1">
         {s.tags.slice(0, 3).map(t => (
           <span key={t} className="text-xs font-mono text-dark-muted bg-dark-surface2 border border-dark-border rounded px-1.5 py-0.5">{t}</span>
         ))}
       </div>
 
-      {/* Bottom stats */}
       <div className="flex items-center justify-between pt-2 border-t border-dark-border">
         <div className="flex items-center gap-3">
           {s.ucpCompatible && <span className="text-xs font-mono text-brand-400">UCP</span>}
@@ -68,7 +71,14 @@ function ServiceCard({ s }: { s: Service }) {
 }
 
 export default function MarketplacePage() {
-  const { services, search, setSearch, category, setCategory, sort, setSort, ucpOnly, setUcpOnly, mcpOnly, setMcpOnly, total } = useServices();
+  const {
+    services, search, setSearch,
+    category, setCategory,
+    sort, setSort,
+    ucpOnly, setUcpOnly,
+    mcpOnly, setMcpOnly,
+    total, loading, error,
+  } = useServices();
 
   return (
     <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8 animate-fade-in">
@@ -80,14 +90,15 @@ export default function MarketplacePage() {
             Piața AI Agent<br className="hidden sm:block" />
             <span className="text-brand-400"> on-chain</span>
           </h1>
-          <p className="text-dark-muted max-w-lg text-sm sm:text-base">Descoperă servicii, plătești cu x402, execuți prin MCP — totul în sub-secundă pe Supernova.</p>
+          <p className="text-dark-muted max-w-lg text-sm sm:text-base">
+            Descoperă servicii, plătești cu x402, execuți prin MCP — totul în sub-secundă pe Supernova.
+          </p>
           <div className="flex flex-wrap gap-2 mt-4">
             {['UCP Discovery', 'ACP Checkout', 'AP2 Mandate', 'x402 Payment', 'MCP Execution'].map(p => (
               <span key={p} className="text-xs font-mono text-brand-400 bg-brand-500/10 border border-brand-500/20 rounded-full px-3 py-1">{p}</span>
             ))}
           </div>
         </div>
-        {/* Decorative */}
         <div className="absolute right-0 top-0 w-64 h-64 bg-brand-500/5 rounded-full blur-3xl pointer-events-none" />
       </div>
 
@@ -138,13 +149,20 @@ export default function MarketplacePage() {
         >MCP only</button>
       </div>
 
+      {/* Backend offline notice */}
+      {error && (
+        <div className="text-xs text-amber-400 bg-amber-500/10 border border-amber-500/20 rounded-lg px-3 py-2 mb-4 font-mono">
+          ⚠ {error}
+        </div>
+      )}
+
       {/* Results count */}
       <p className="text-xs text-dark-muted mb-4">
-        {services.length} din {total} servicii
+        {loading ? 'Se încarcă...' : `${services.length} din ${total} servicii`}
       </p>
 
       {/* Grid */}
-      {services.length === 0 ? (
+      {!loading && services.length === 0 ? (
         <div className="flex flex-col items-center gap-3 py-20 text-dark-muted">
           <span className="text-4xl">🤖</span>
           <p className="text-sm">Niciun serviciu găsit. Încearcă alt filtru.</p>

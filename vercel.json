@@ -2,26 +2,28 @@
   "$schema": "https://openapi.vercel.sh/vercel.json",
   "version": 2,
   "name": "agentbazaar-frontend",
-  "builds": [
-    {
-      "src": "apps/frontend/temp-frontend/package.json",
-      "use": "@vercel/next"
-    }
-  ],
-  "routes": [
-    {
-      "src": "/(.*)",
-      "dest": "apps/frontend/temp-frontend/$1"
-    }
-  ],
+  "framework": "nextjs",
+  "installCommand": "npm install --no-audit --no-fund",
+  "buildCommand": "npm run build --workspace @agentbazaar/sdk-ts && npm run build --workspace @agentbazaar/marketplace",
+  "outputDirectory": "apps/marketplace/.next",
+  "regions": ["cdg1"],
   "env": {
-    "NEXT_PUBLIC_BACKEND_URL":           "@agentbazaar_backend_url",
-    "NEXT_PUBLIC_MVX_NETWORK":           "devnet",
-    "NEXT_PUBLIC_MVX_API":               "https://devnet-api.multiversx.com",
-    "NEXT_PUBLIC_WC_PROJECT_ID":         "@walletconnect_project_id",
-    "NEXT_PUBLIC_REGISTRY_CONTRACT":     "@registry_contract",
-    "NEXT_PUBLIC_ESCROW_CONTRACT":       "@escrow_contract",
-    "NEXT_PUBLIC_REPUTATION_CONTRACT":   "@reputation_contract"
+    "NEXT_PUBLIC_BACKEND_URL":        "@agentbazaar_backend_url",
+    "NEXT_PUBLIC_MVX_ENVIRONMENT":    "devnet",
+    "NEXT_PUBLIC_MVX_API_URL":        "https://devnet-api.multiversx.com",
+    "NEXT_PUBLIC_WALLETCONNECT_PROJECT_ID": "@walletconnect_project_id",
+    "NEXT_PUBLIC_REGISTRY_ADDRESS":   "@registry_contract",
+    "NEXT_PUBLIC_ESCROW_ADDRESS":     "@escrow_contract",
+    "NEXT_PUBLIC_REPUTATION_ADDRESS": "@reputation_contract"
   },
-  "framework": "nextjs"
+  "headers": [
+    {
+      "source": "/(.*)",
+      "headers": [
+        { "key": "X-Content-Type-Options", "value": "nosniff" },
+        { "key": "X-Frame-Options", "value": "DENY" },
+        { "key": "Referrer-Policy", "value": "strict-origin-when-cross-origin" }
+      ]
+    }
+  ]
 }

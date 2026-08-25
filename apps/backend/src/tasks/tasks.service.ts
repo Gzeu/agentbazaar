@@ -2,6 +2,8 @@ import { Injectable, NotFoundException, Logger, OnModuleInit } from '@nestjs/com
 import { v4 as uuidv4 } from 'uuid';
 import { CreateTaskDto } from './dto/create-task.dto';
 import { CompleteTaskDto } from './dto/complete-task.dto';
+import type { McpContractService } from '../multiversx/mcp-contract.service';
+import type { ConfigService } from '@nestjs/config';
 
 export type TaskStatus = 'pending' | 'running' | 'completed' | 'failed' | 'disputed' | 'refunded';
 
@@ -17,6 +19,7 @@ export interface TaskRecord {
   escrowTxHash?: string;
   latencyMs?: number;
   disputeReason?: string;
+  onChainVerified?: boolean;   // true when escrow proof confirmed on-chain
   createdAt: string;
   updatedAt: string;
   deadline: string;
@@ -47,6 +50,14 @@ export class TasksService implements OnModuleInit {
   ) {
     this.reputationService = rep;
     this.servicesService = svc;
+  }
+
+  private contracts?: McpContractService;
+  private config?: ConfigService;
+  /** Wire SC-MCP contract service (optional - enables real on-chain flows). */
+  setMcpDependencies(contracts: McpContractService, config: ConfigService) {
+    this.contracts = contracts;
+    this.config = config;
   }
 
   onModuleInit() {
@@ -142,6 +153,13 @@ export class TasksService implements OnModuleInit {
     // Wire cross-service stats after real completion
     this.reputationService?.updateFromTask(task.providerAddress, true, dto.latencyMs);
     this.servicesService?.incrementTaskStats(task.serviceId, true, dto.latencyMs);
+
+    // Best-effort on-chain sync via SC MCP (skip if not wired or no contract)
+    if (this.contracts) {
+      this.contracts.completeTask(id, dto.proofHash, dto.latencyMs ?? 0)
+        .then((r: { success: boolean }) => { task.onChainVerified = r.success; })
+        .catch(() => undefined);
+    }
 
     this.logger.log(`Task completed: ${id} — ${dto.latencyMs}ms`);
     return task;

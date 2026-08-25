@@ -1,0 +1,86 @@
+npm warn config ignoring workspace config at /home/i5/agentbazaar/apps/frontend/.npmrc
+
+> @agentbazaar/frontend@0.1.0 build
+> next build
+
+  ▲ Next.js 14.2.0
+
+   Creating an optimized production build ...
+ ⚠ Compiled with warnings
+
+./app/hooks/useAnalytics.ts
+Attempted import error: 'analyticsApi' is not exported from '@/lib/api' (imported as 'analyticsApi').
+
+Import trace for requested module:
+./app/hooks/useAnalytics.ts
+./app/app/dashboard/page.tsx
+
+./app/hooks/useAnalytics.ts
+Attempted import error: 'analyticsApi' is not exported from '@/lib/api' (imported as 'analyticsApi').
+
+Import trace for requested module:
+./app/hooks/useAnalytics.ts
+./app/app/dashboard/page.tsx
+
+./app/hooks/useAnalytics.ts
+Attempted import error: 'analyticsApi' is not exported from '@/lib/api' (imported as 'analyticsApi').
+
+Import trace for requested module:
+./app/hooks/useAnalytics.ts
+./app/app/dashboard/page.tsx
+
+ ⚠ Compiled with warnings
+
+./app/hooks/useAnalytics.ts
+Attempted import error: 'analyticsApi' is not exported from '@/lib/api' (imported as 'analyticsApi').
+
+Import trace for requested module:
+./app/hooks/useAnalytics.ts
+./app/app/dashboard/page.tsx
+
+./app/hooks/useAnalytics.ts
+Attempted import error: 'analyticsApi' is not exported from '@/lib/api' (imported as 'analyticsApi').
+
+Import trace for requested module:
+./app/hooks/useAnalytics.ts
+./app/app/dashboard/page.tsx
+
+./app/hooks/useAnalytics.ts
+Attempted import error: 'analyticsApi' is not exported from '@/lib/api' (imported as 'analyticsApi').
+
+Import trace for requested module:
+./app/hooks/useAnalytics.ts
+./app/app/dashboard/page.tsx
+
+ ✓ Compiled successfully
+   Skipping validation of types
+   Skipping linting
+   Collecting page data ...
+   Generating static pages (0/9) ...
+   Generating static pages (2/9) 
+   Generating static pages (4/9) 
+   Generating static pages (6/9) 
+ ✓ Generating static pages (9/9)
+   Finalizing page optimization ...
+   Collecting build traces ...
+
+Route (app)                              Size     First Load JS
+┌ ○ /_not-found                          874 B          87.8 kB
+├ ○ /app                                 3.37 kB         115 kB
+├ ○ /app/dashboard                       5.11 kB         117 kB
+├ ○ /app/providers                       2.58 kB         115 kB
+├ ƒ /app/providers/[id]                  2.8 kB          115 kB
+├ ○ /app/services                        3.09 kB          90 kB
+├ ƒ /app/services/[id]                   5.33 kB         111 kB
+├ ○ /app/services/register               12.2 kB         117 kB
+├ ○ /app/tasks                           3.06 kB         115 kB
+└ ƒ /app/tasks/[id]                      3.99 kB         109 kB
++ First Load JS shared by all            86.9 kB
+  ├ chunks/1dd3208c-e28129fc59d964ae.js  53.6 kB
+  ├ chunks/286-fcfaefb3bfbe7324.js       31.3 kB
+  └ other shared chunks (total)          1.96 kB
+
+
+○  (Static)   prerendered as static content
+ƒ  (Dynamic)  server-rendered on demand
+

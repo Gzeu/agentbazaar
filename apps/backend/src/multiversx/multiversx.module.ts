@@ -1,10 +1,10 @@
 import { Module } from '@nestjs/common';
-import { ConfigModule } from '@nestjs/config';
 import { MultiversxService } from './multiversx.service';
+import { McpClientService } from './mcp-client.service';
+import { McpContractService } from './mcp-contract.service';
 
 @Module({
-  imports: [ConfigModule],
-  providers: [MultiversxService],
-  exports: [MultiversxService],
+  providers: [MultiversxService, McpClientService, McpContractService],
+  exports:   [MultiversxService, McpClientService, McpContractService],
 })
 export class MultiversxModule {}
