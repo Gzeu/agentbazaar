@@ -160,6 +160,26 @@ export class TasksService implements OnModuleInit {
     return task;
   }
 
+  /**
+   * Auto-refund a task whose deadline has passed while still
+   * pending/running. Used by TimeoutService — never throws.
+   */
+  timeout(id: string): TaskRecord | undefined {
+    const task = this.store.get(id);
+    if (!task || !['pending', 'running'].includes(task.status)) return undefined;
+    if (Date.now() < new Date(task.deadline).getTime()) return undefined;
+    task.status    = 'refunded';
+    task.updatedAt = new Date().toISOString();
+    this.store.set(id, task);
+
+    // Provider failed to deliver in time — penalise reputation
+    this.reputationService?.updateFromTask(task.providerAddress, false);
+    this.servicesService?.incrementTaskStats(task.serviceId, false);
+
+    this.logger.log(`Task timed out & refunded: ${id}`);
+    return task;
+  }
+
   refund(id: string): TaskRecord {
     const task = this.findOne(id);
     if (task.status !== 'pending') {

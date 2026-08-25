@@ -32,9 +32,11 @@ export class TimeoutService implements OnModuleInit {
         this.tasks.timeout(task.id);
         this.events.emitEvent({
           type:      'TaskRefunded',
-          taskId:    task.id,
-          hash:      undefined,
-          timestamp: new Date().toISOString(),
+          id:        task.id,
+          txHash:    '',
+          timestamp: Date.now(),
+          blockNonce: 0,
+          data:      { reason: 'deadline_exceeded', taskId: task.id },
         });
         refunded++;
       }

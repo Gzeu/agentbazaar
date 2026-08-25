@@ -8,12 +8,16 @@ import {
 } from '@nestjs/websockets';
 import { Server, Socket } from 'socket.io';
 import { Logger } from '@nestjs/common';
+import { ChainEvent } from './chain-event';
+
+const MAX_RECENT_EVENTS = 100;
 
 @WebSocketGateway({ cors: { origin: '*' }, namespace: '/events' })
 export class EventsGateway implements OnGatewayConnection, OnGatewayDisconnect {
-  @WebSocketServer() server: Server;
+  @WebSocketServer() server!: Server;
   private readonly logger = new Logger(EventsGateway.name);
   private clientCount = 0;
+  private recentEvents: ChainEvent[] = [];
 
   handleConnection(client: Socket) {
     this.clientCount++;
@@ -39,6 +43,18 @@ export class EventsGateway implements OnGatewayConnection, OnGatewayDisconnect {
 
   emit(event: string, payload: Record<string, unknown>) {
     this.server?.emit(event, { ...payload, timestamp: new Date().toISOString() });
+  }
+
+  /** Broadcast a typed chain event over WS and keep it in the recent buffer. */
+  emitEvent(event: ChainEvent) {
+    this.recentEvents.push(event);
+    if (this.recentEvents.length > MAX_RECENT_EVENTS)
+      this.recentEvents = this.recentEvents.slice(-MAX_RECENT_EVENTS);
+    this.server?.emit('event', event);
+  }
+
+  getRecentEvents(limit: number): ChainEvent[] {
+    return this.recentEvents.slice(-limit).reverse();
   }
 
   private startMockStream(client: Socket) {
