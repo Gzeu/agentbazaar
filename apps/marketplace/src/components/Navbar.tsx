@@ -10,6 +10,8 @@ const NAV_LINKS = [
   { href: "/consumer",     label: "Consumer"     },
   { href: "/events",       label: "Live Feed"    },
   { href: "/leaderboard",  label: "Leaderboard" },
+  { href: "/analytics",    label: "Analytics"   },
+  { href: "/register",     label: "Register"    },
 ];
 
 export function Navbar() {
