@@ -3,15 +3,25 @@ import { useState } from "react";
 import Link from "next/link";
 import { useWallet } from "@/context/WalletContext";
 import { useProviderDashboard } from "@/hooks/useProviderDashboard";
-import type { TaskRecord } from "@/lib/api";
+import { servicesApi, type TaskRecord } from "@/lib/api";
 
 const weiToEgld = (wei: string) => (Number(wei) / 1e18).toFixed(4);
 
 export default function ProviderPage() {
   const { connected, connect, shortAddress, address } = useWallet();
   const [tab, setTab] = useState<"overview" | "services" | "history">("overview");
-  const { services, tasks, reputation, stats, loading, error } =
+  const { services, tasks, reputation, stats, loading, error, refresh } =
     useProviderDashboard(address);
+
+  const handleDeregister = async (svcId: string, name: string) => {
+    if (!confirm(`Deregister "${name}"? It will be hidden from the marketplace.`)) return;
+    try {
+      await servicesApi.deregister(svcId);
+      refresh();
+    } catch (e) {
+      alert((e as Error).message);
+    }
+  };
 
   if (!connected) {
     return (
@@ -153,7 +163,18 @@ export default function ProviderPage() {
                   <div className="font-semibold text-sm" style={{ color: "var(--color-text)" }}>{svc.name}</div>
                   <div className="text-xs mt-0.5" style={{ color: "var(--color-text-muted)" }}>{svc.id} · {svc.endpoint}</div>
                 </div>
-                <span className={`badge ${svc.active ? "badge-success" : "badge-danger"}`}>{svc.active ? "active" : "inactive"}</span>
+                <div className="flex items-center gap-3">
+                  <span className={`badge ${svc.active ? "badge-success" : "badge-danger"}`}>{svc.active ? "active" : "inactive"}</span>
+                  {svc.active && (
+                    <button
+                      className="btn-ghost"
+                      style={{ padding: "0.3rem 0.75rem", fontSize: "0.75rem", color: "var(--color-danger)", borderColor: "var(--color-danger)" }}
+                      onClick={() => void handleDeregister(svc.id, svc.name)}
+                    >
+                      Deregister
+                    </button>
+                  )}
+                </div>
               </div>
             ))}
           </div>

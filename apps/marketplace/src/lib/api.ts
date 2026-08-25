@@ -142,6 +142,12 @@ export const servicesApi = {
       `/services?limit=${opts.limit ?? 100}`,
     );
   },
+
+  deregister(id: string) {
+    return request<{ success: boolean }>(`/services/${encodeURIComponent(id)}`, {
+      method: "DELETE",
+    });
+  },
 };
 
 export interface ServiceRecord {
