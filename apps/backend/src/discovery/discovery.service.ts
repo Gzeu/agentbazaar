@@ -18,7 +18,7 @@ export class DiscoveryService {
   constructor(private readonly services: ServicesService) {}
 
   discover(query: DiscoveryQuery) {
-    const { services: all } = this.services.findAll({ limit: 1000 });
+    const { data: all } = this.services.findAll({ limit: 1000 });
 
     const filtered = all.filter(s => {
       if (!s.active)                                              return false;

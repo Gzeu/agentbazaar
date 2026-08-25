@@ -8,6 +8,7 @@ import { MultiversxModule } from '../multiversx/multiversx.module';
 @Module({
   imports: [ReputationModule, ServicesModule, MultiversxModule],
   controllers: [TasksController],
+  providers:   [TasksService],
   exports:     [TasksService],
 })
 export class TasksModule {}
