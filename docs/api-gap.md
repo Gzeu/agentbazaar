@@ -1,6 +1,6 @@
 # API Coverage — Backend endpoints vs Marketplace frontend
 
-Audit 2026-08-25 (v1.0.0).
+Audit 2026-08-25 · actualizat post-PR #5/#6/#7.
 
 ## Backend endpoints (NestJS, prefix /api/v1)
 
@@ -14,21 +14,31 @@ Audit 2026-08-25 (v1.0.0).
 | analytics | GET / (overview) · GET /categories · GET /volume |
 | health | GET / |
 
-## Frontend usage (apps/marketplace)
+## Frontend coverage (apps/marketplace)
 
-| Hook/Page | Consumă | Status |
-|---|---|---|
-| useAgentBazaar (catalog) | GET /services via SDK `ucp.getAllServices()` | ✅ conectat |
-| useServiceDetail | GET /services/:id via SDK | ✅ conectat |
-| useEvents | GET /events + polling EventsClient | ✅ conectat |
-| useBuyTask | POST /tasks (+ escrow TX best-effort) | ✅ conectat |
-| WalletContext | sdk-dapp deep imports → **degraded mode** (webpackIgnore fallback) | ⚠️ wallet UI non-funcțional până la migrarea pe sdk-dapp v5 sau direct @multiversx/sdk-core signing |
+| Page | Ruta | Consumă | Status |
+|---|---|---|---|
+| Home / Landing | `/` | — | ✅ |
+| Marketplace catalog | `/marketplace` | useAgentBazaar (SDK ucp.getAllServices) | ✅ |
+| Service detail | `/marketplace/[id]` | useServiceDetail | ✅ |
+| Consumer (tasks + actions) | `/consumer` | useMyTasks + useTaskActions (dispute/refund/complete) | ✅ |
+| Provider dashboard | `/provider` | useProviderDashboard (services/tasks/reputation) | ✅ |
+| Register service | `/register` | servicesApi.register (CreateServiceDto) | ✅ |
+| Analytics | `/analytics` | useAnalytics (dashboard/categories/volume) | ✅ |
+| Leaderboard | `/leaderboard` | reputationApi.leaderboard | ✅ |
+| Live events feed | `/events` | useEvents (SDK EventsClient polling) | ✅ |
+| Wallet | — | WalletContext | ⚠️ degraded (sdk-dapp broken) |
 
-## Goluri identificate (TODO)
+## Goluri rămase (open)
 
-1. **Marketplace nu expune UI pentru**: POST /tasks/:id/complete · :id/dispute · :id/refund (existau în vechiul temp-frontend — DisputeModal etc. n-au fost migrate)
-2. **Analytics** (overview/categories/volume) — fără pagină/hook dedicat în marketplace (era useAnalytics în temp-frontend)
-3. **Provider registration** (POST /services) — lipsește formularul din marketplace (exista /services/register în legacy)
-4. **DELETE /services/:id** — nefolosit nicăieri
-5. **Wallet signing real** — blocat de sdk-dapp broken; recomandare: migrare pe `@multiversx/sdk-core` Session/`sdk-dapp` v5 API oficial
-6. **Auth/JWT** — backend are AuthModule dar frontend-ul nu trimite token
+1. **Wallet signing real** — sdk-dapp deep-imports nu există în v2.40; opțiuni: migrare @multiversx/sdk-core signing + WalletConnectV2Provider direct (parțial în ConnectModal) sau sdk-dapp v5
+2. **Auth/JWT** — backend are AuthModule dar frontend nu trimite token; gate pe acțiuni admin/provider declare
+3. **DELETE /services/:id** — nicio UI (deregister) pentru servicii
+4. **Env vars Vercel/WalletConnect** — config din dashboard (Root Directory confirmat, WalletConnect ID lipsă)
+
+## Rezolvat (din auditul anterior)
+
+- ~~dispute/refund/complete UI~~ → PR #5
+- ~~analytics~~ → PR #6
+- ~~provider registration~~ → PR #6
+- ~~leaderboard + provider mock~~ → PR #7

@@ -106,6 +106,9 @@ jobs:
 
       - name: Build
         run: npm run build --workspace @agentbazaar/marketplace
+
+      - name: Test (vitest)
+        run: npm test --workspace @agentbazaar/marketplace
         env:
           NEXT_PUBLIC_BACKEND_URL: http://localhost:3001
           NEXT_PUBLIC_MVX_ENVIRONMENT: devnet
