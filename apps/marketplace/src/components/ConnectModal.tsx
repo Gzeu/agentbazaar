@@ -1,5 +1,6 @@
 "use client";
-import { useCallback } from "react";
+import { useState, useCallback } from "react";
+import { useWallet } from "@/context/WalletContext";
 import { MVX_ENVIRONMENT } from "@/lib/mvx/config";
 
 interface ConnectModalProps {
@@ -7,73 +8,63 @@ interface ConnectModalProps {
 }
 
 export function ConnectModal({ onClose }: ConnectModalProps) {
+  const { signer, setAddress: setWalletAddress } = useWallet();
+  const [error, setError] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+
   const loginWithExtension = useCallback(async () => {
+    setError(null);
+    setBusy(true);
     try {
-      const { ExtensionProvider } = await import(
-        "@multiversx/sdk-extension-provider"
-      );
-      const provider = ExtensionProvider.getInstance();
-      await provider.init();
-      const address = await provider.login();
-      console.log("[ConnectModal] Extension login:", address);
+      const addr = await signer.connectExtension();
+      setWalletAddress(String(addr));
       onClose();
     } catch (e) {
-      console.error("[ConnectModal] Extension login failed:", e);
+      setError((e as Error).message);
+    } finally {
+      setBusy(false);
     }
-  }, [onClose]);
+  }, [signer, setWalletAddress, onClose]);
 
   const loginWithWebWallet = useCallback(() => {
-    const env = MVX_ENVIRONMENT;
-    const callbackUrl = encodeURIComponent(window.location.href);
-    const baseUrl =
-      env === "mainnet"
-        ? "https://wallet.multiversx.com"
-        : `https://${env}-wallet.multiversx.com`;
-    window.location.href = `${baseUrl}/hook/login?callbackUrl=${callbackUrl}`;
-  }, []);
+    setError(null);
+    try {
+      void signer.connectWebWallet(window.location.href);
+    } catch (e) {
+      setError((e as Error).message);
+    }
+  }, [signer]);
 
+  const loginWithDev = useCallback(() => {
+    const devAddr =
+      "erd1qyu5wthldzx5cpf7ly8wx5cpf7ly8wx5cpf7ly8wx5cpf7ly8wx5cpf7ly8wx5c";
+    window.localStorage.setItem("ab:devAddress", devAddr);
+    window.dispatchEvent(new Event("dev-address"));
+    onClose();
+  }, [onClose]);
 
   return (
     <div
-      className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 px-4"
+      className="fixed inset-0 z-50 flex items-center justify-center"
+      style={{ background: "rgba(0,0,0,0.6)" }}
       onClick={onClose}
     >
       <div
-        className="card w-full max-w-sm space-y-5"
+        className="w-full max-w-md mx-4 p-6 rounded-2xl"
+        style={{ background: "var(--color-surface-1)" }}
         onClick={(e) => e.stopPropagation()}
       >
-        {/* Header */}
-        <div className="flex items-center justify-between">
-          <h2 className="font-bold" style={{ color: "var(--color-text)" }}>
-            Connect Wallet
-          </h2>
-          <button onClick={onClose} style={{ color: "var(--color-text-muted)" }}>
-            ✕
-
-          {/* Dev quick-login (non-mainnet only) */}
-          {MVX_ENVIRONMENT !== "mainnet" && (
-            <button
-              onClick={() => {
-                const devAddr = "erd1qyu5wthldzx5cpf7ly8wx5cpf7ly8wx5cpf7ly8wx5cpf7ly8wx5cpf7ly8wx5c";
-                window.localStorage.setItem("ab:devAddress", devAddr);
-                window.dispatchEvent(new Event("dev-address"));
-                onClose();
-              }}
-              className="w-full flex items-center gap-3 px-4 py-3 rounded-xl border transition-colors hover:border-[var(--color-primary)] text-left"
-              style={{ background: "var(--color-surface-2)", borderColor: "var(--color-border)" }}
-            >
-              <span className="text-2xl">⚡</span>
-              <div>
-                <div className="text-sm font-semibold" style={{ color: "var(--color-text)" }}>Quick dev login</div>
-                <div className="text-xs" style={{ color: "var(--color-text-muted)" }}>Simulate connect on {MVX_ENVIRONMENT} (no wallet needed)</div>
-              </div>
-            </button>
-          )}
-          </button>
-        </div>
-
-        <p className="text-xs" style={{ color: "var(--color-text-muted)" }}>
-          Choose how you want to connect to AgentBazaar on MultiversX{" "}
+        <h2
+          className="text-xl font-bold mb-2"
+          style={{ color: "var(--color-text)" }}
+        >
+          Connect Wallet
+        </h2>
+        <p
+          className="text-sm mb-6"
+          style={{ color: "var(--color-text-muted)" }}
+        >
+          Choose how you want to sign messages on{" "}
           <span
             className="font-semibold"
             style={{ color: "var(--color-primary)" }}
@@ -83,12 +74,23 @@ export function ConnectModal({ onClose }: ConnectModalProps) {
           .
         </p>
 
-        {/* Options */}
+        {error && (
+          <div
+            className="mb-4 p-3 rounded-lg text-sm"
+            style={{
+              background: "var(--color-danger-bg, #fee)",
+              color: "var(--color-danger, #c00)",
+            }}
+          >
+            {error}
+          </div>
+        )}
+
         <div className="space-y-3">
-          {/* Browser Extension */}
           <button
             onClick={loginWithExtension}
-            className="w-full flex items-center gap-3 px-4 py-3 rounded-xl border transition-colors hover:border-[var(--color-primary)] text-left"
+            disabled={busy}
+            className="w-full flex items-center gap-3 px-4 py-3 rounded-xl border transition-colors hover:border-[var(--color-primary)] text-left disabled:opacity-50"
             style={{
               background: "var(--color-surface-2)",
               borderColor: "var(--color-border)",
@@ -111,10 +113,10 @@ export function ConnectModal({ onClose }: ConnectModalProps) {
             </div>
           </button>
 
-          {/* Web Wallet */}
           <button
             onClick={loginWithWebWallet}
-            className="w-full flex items-center gap-3 px-4 py-3 rounded-xl border transition-colors hover:border-[var(--color-primary)] text-left"
+            disabled={busy}
+            className="w-full flex items-center gap-3 px-4 py-3 rounded-xl border transition-colors hover:border-[var(--color-primary)] text-left disabled:opacity-50"
             style={{
               background: "var(--color-surface-2)",
               borderColor: "var(--color-border)",
@@ -136,9 +138,39 @@ export function ConnectModal({ onClose }: ConnectModalProps) {
               </div>
             </div>
           </button>
+
+          {MVX_ENVIRONMENT !== "mainnet" && (
+            <button
+              onClick={loginWithDev}
+              className="w-full flex items-center gap-3 px-4 py-3 rounded-xl border transition-colors hover:border-[var(--color-primary)] text-left"
+              style={{
+                background: "var(--color-surface-2)",
+                borderColor: "var(--color-border)",
+              }}
+            >
+              <span className="text-2xl">⚡</span>
+              <div>
+                <div
+                  className="text-sm font-semibold"
+                  style={{ color: "var(--color-text)" }}
+                >
+                  Quick dev login
+                </div>
+                <div
+                  className="text-xs"
+                  style={{ color: "var(--color-text-muted)" }}
+                >
+                  Simulate connect on {MVX_ENVIRONMENT} (no wallet needed)
+                </div>
+              </div>
+            </button>
+          )}
         </div>
 
-        <p className="text-xs text-center" style={{ color: "var(--color-text-muted)" }}>
+        <p
+          className="text-xs text-center mt-6"
+          style={{ color: "var(--color-text-muted)" }}
+        >
           Non-custodial · No private keys stored
         </p>
       </div>
