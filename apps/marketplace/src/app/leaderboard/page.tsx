@@ -1,17 +1,31 @@
 "use client";
 
-const LEADERBOARD = [
-  { rank: 1,  address: "erd1jkl…", name: "EGLD Price Oracle",      score: 99, tasks: 4821, rate: "99.9%", latency: "95ms",  stake: "5.0 EGLD",  slash: 0 },
-  { rank: 2,  address: "erd1abc…", name: "DataFetch Pro",           score: 97, tasks: 3142, rate: "99.7%", latency: "210ms", stake: "3.0 EGLD",  slash: 0 },
-  { rank: 3,  address: "erd1mno…", name: "AML Compliance Check",    score: 95, tasks: 2204, rate: "99.5%", latency: "480ms", stake: "4.0 EGLD",  slash: 0 },
-  { rank: 4,  address: "erd1vwx…", name: "Push Notification Relay", score: 93, tasks: 1803, rate: "99.2%", latency: "190ms", stake: "2.0 EGLD",  slash: 0 },
-  { rank: 5,  address: "erd1def…", name: "ML Compute Node",         score: 92, tasks: 1540, rate: "99.1%", latency: "720ms", stake: "6.0 EGLD",  slash: 0 },
-  { rank: 6,  address: "erd1pqr…", name: "Semantic Tagger",         score: 90, tasks: 1120, rate: "98.8%", latency: "580ms", stake: "2.5 EGLD",  slash: 0 },
-  { rank: 7,  address: "erd1ghi…", name: "Workflow Runner",          score: 88, tasks:  980, rate: "98.5%", latency: "1100ms",stake: "3.5 EGLD",  slash: 1 },
-  { rank: 8,  address: "erd1stu…", name: "Wallet Action Bot",        score: 85, tasks:  742, rate: "98.1%", latency: "400ms", stake: "2.0 EGLD",  slash: 0 },
-];
+import { useEffect, useState } from "react";
+import { reputationApi, type ReputationEntry } from "@/lib/api";
 
 export default function LeaderboardPage() {
+  const [entries, setEntries] = useState<ReputationEntry[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    const fetchLb = async () => {
+      try {
+        setError(null);
+        const data = await reputationApi.leaderboard(20);
+        if (!cancelled) setEntries(data);
+      } catch (err) {
+        if (!cancelled) setError((err as Error).message);
+      } finally {
+        if (!cancelled) setLoading(false);
+      }
+    };
+    void fetchLb();
+    const id = setInterval(() => void fetchLb(), 60_000);
+    return () => { cancelled = true; clearInterval(id); };
+  }, []);
+
   return (
     <main className="min-h-screen px-6 py-10">
       <div className="max-w-5xl mx-auto space-y-8">
@@ -23,55 +37,75 @@ export default function LeaderboardPage() {
           </p>
         </div>
 
+        {error && (
+          <div className="card text-sm" style={{ color: "var(--color-danger)" }}>⚠ {error}</div>
+        )}
+        {loading && (
+          <div className="card text-center text-sm" style={{ color: "var(--color-text-muted)" }}>Loading leaderboard…</div>
+        )}
+        {!loading && entries.length === 0 && !error && (
+          <div className="card text-center text-sm" style={{ color: "var(--color-text-muted)" }}>
+            No agents have earned reputation yet — complete tasks as a provider to appear here.
+          </div>
+        )}
+
         {/* Top 3 podium */}
-        <div className="grid grid-cols-3 gap-4">
-          {LEADERBOARD.slice(0,3).map((p) => (
-            <div key={p.rank} className="card text-center space-y-2" style={{
-              border: p.rank === 1 ? "1px solid var(--color-primary)" : "1px solid var(--color-border)"
-            }}>
-              <div className="text-3xl">{p.rank === 1 ? "🥇" : p.rank === 2 ? "🥈" : "🥉"}</div>
-              <div className="font-bold text-sm" style={{ color: p.rank === 1 ? "var(--color-primary)" : "var(--color-text)" }}>{p.name}</div>
-              <div className="text-2xl font-bold" style={{ color: "var(--color-primary)" }}>{p.score}</div>
-              <div className="text-xs" style={{ color: "var(--color-text-muted)" }}>{p.tasks} tasks · {p.rate}</div>
-            </div>
-          ))}
-        </div>
+        {entries.length >= 1 && (
+          <div className="grid grid-cols-3 gap-4">
+            {entries.slice(0, 3).map((p, i) => (
+              <div key={p.agentAddress} className="card text-center space-y-2" style={{
+                border: i === 0 ? "1px solid var(--color-primary)" : "1px solid var(--color-border)",
+              }}>
+                <div className="text-3xl">{i === 0 ? "🥇" : i === 1 ? "🥈" : "🥉"}</div>
+                <div className="font-bold text-xs font-mono" style={{ color: i === 0 ? "var(--color-primary)" : "var(--color-text)" }}>
+                  {p.agentAddress.slice(0, 12)}…
+                </div>
+                <div className="text-2xl font-bold" style={{ color: "var(--color-primary)" }}>{Math.round(p.compositeScore)}</div>
+                <div className="text-xs" style={{ color: "var(--color-text-muted)" }}>
+                  {p.totalTasks} tasks · {(p.completionRate * 100).toFixed(1)}%
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
 
         {/* Full table */}
-        <div className="card overflow-x-auto">
-          <table className="w-full text-sm">
-            <thead>
-              <tr className="border-b" style={{ borderColor: "var(--color-border)" }}>
-                {["Rank", "Provider", "Score", "Tasks", "Completion", "Avg Latency", "Stake", "Slashes"].map((h) => (
-                  <th key={h} className="text-left pb-3 pr-6 text-xs font-semibold" style={{ color: "var(--color-text-muted)" }}>{h}</th>
-                ))}
-              </tr>
-            </thead>
-            <tbody>
-              {LEADERBOARD.map((p) => (
-                <tr key={p.rank} className="border-b" style={{ borderColor: "var(--color-border)" }}>
-                  <td className="py-3 pr-6 font-bold" style={{ color: p.rank <= 3 ? "var(--color-primary)" : "var(--color-text-muted)" }}>#{p.rank}</td>
-                  <td className="py-3 pr-6">
-                    <div className="font-medium" style={{ color: "var(--color-text)" }}>{p.name}</div>
-                    <div className="text-xs font-mono" style={{ color: "var(--color-text-muted)" }}>{p.address}</div>
-                  </td>
-                  <td className="py-3 pr-6 font-bold" style={{ color: "var(--color-primary)" }}>{p.score}</td>
-                  <td className="py-3 pr-6" style={{ color: "var(--color-text)" }}>{p.tasks.toLocaleString()}</td>
-                  <td className="py-3 pr-6">
-                    <span className="badge badge-success">{p.rate}</span>
-                  </td>
-                  <td className="py-3 pr-6" style={{ color: "var(--color-text)" }}>{p.latency}</td>
-                  <td className="py-3 pr-6" style={{ color: "var(--color-text)" }}>{p.stake}</td>
-                  <td className="py-3 pr-6">
-                    {p.slash > 0
-                      ? <span className="badge badge-danger">{p.slash}</span>
-                      : <span style={{ color: "var(--color-text-muted)" }}>—</span>}
-                  </td>
+        {entries.length > 0 && (
+          <div className="card overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="border-b" style={{ borderColor: "var(--color-border)" }}>
+                  {["Rank", "Agent", "Score", "Tasks", "Completion", "Avg Latency", "Slashed"].map((h) => (
+                    <th key={h} className="text-left pb-3 pr-6 text-xs font-semibold" style={{ color: "var(--color-text-muted)" }}>{h}</th>
+                  ))}
                 </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
+              </thead>
+              <tbody>
+                {entries.map((p, i) => (
+                  <tr key={p.agentAddress} className="border-b" style={{ borderColor: "var(--color-border)" }}>
+                    <td className="py-3 pr-6 font-bold" style={{ color: i < 3 ? "var(--color-primary)" : "var(--color-text-muted)" }}>#{i + 1}</td>
+                    <td className="py-3 pr-6">
+                      <div className="text-xs font-mono" style={{ color: "var(--color-text)" }}>{p.agentAddress.slice(0, 16)}…</div>
+                    </td>
+                    <td className="py-3 pr-6 font-bold" style={{ color: "var(--color-primary)" }}>{Math.round(p.compositeScore)}</td>
+                    <td className="py-3 pr-6" style={{ color: "var(--color-text)" }}>{p.totalTasks.toLocaleString()}</td>
+                    <td className="py-3 pr-6">
+                      <span className={`badge ${p.completionRate >= 0.9 ? "badge-success" : p.completionRate >= 0.7 ? "badge-warning" : "badge-danger"}`}>
+                        {(p.completionRate * 100).toFixed(1)}%
+                      </span>
+                    </td>
+                    <td className="py-3 pr-6" style={{ color: "var(--color-text)" }}>{Math.round(p.avgLatencyMs)}ms</td>
+                    <td className="py-3 pr-6">
+                      {p.slashed
+                        ? <span className="badge badge-danger">yes</span>
+                        : <span style={{ color: "var(--color-text-muted)" }}>—</span>}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
       </div>
     </main>
   );
