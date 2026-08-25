@@ -155,7 +155,7 @@ npm install && npm run start:dev
 ### 4. Frontend
 
 ```bash
-cd apps/frontend/temp-frontend
+cd apps/marketplace
 cp .env.local.example .env.local
 # Setează NEXT_PUBLIC_WC_PROJECT_ID de la https://cloud.walletconnect.com
 npm install && npm run dev
@@ -244,7 +244,7 @@ agentbazaar/
 ├── apps/
 │   ├── backend/        # NestJS — 7 module + analytics + JWT + rate limit
 │   └── frontend/
-│       └── temp-frontend/ # Next.js 16 — 9 pagini + 8 hooks
+│       └── marketplace/  # Next.js 15 + React 19
 │           ├── lib/
 │           │   ├── api.ts              # REST client tipizat
 │           │   └── agentbazaar-sdk.ts  # TX builders contracte
@@ -368,9 +368,9 @@ agentbazaar/
 | Pas | Comandă | Timp estimat |
 |---|---|---|
 | Setează WalletConnect ID | [cloud.walletconnect.com](https://cloud.walletconnect.com) → `.env.local` | 2 min |
-| Pornește frontend local | `npm run dev` în `apps/frontend/temp-frontend/` | 1 min |
+| Pornește frontend local | `npm run dev` în `apps/marketplace/` | 1 min |
 | Pornește backend local | `npm run start:dev` în `apps/backend/` | 2 min |
-| Deploy frontend Vercel | `vercel --prod` în `apps/frontend/temp-frontend/` | 3 min |
+| Deploy frontend Vercel | `vercel --prod` în `apps/marketplace/` | 3 min |
 | Deploy backend Railway | Push la Railway via `railway.json` | 5 min |
 | Redeploy contracte | `python devnet/deploy_windows.py` | 5 min |
 
@@ -400,14 +400,14 @@ cd agentbazaar
 cd apps/backend && npm install && npm run start:dev
 
 # Frontend (alt terminal)
-cd apps/frontend/temp-frontend && npm install && npm run dev
+cd apps/marketplace && npm install && npm run dev
 
 # Python SDK
 cd sdk/python && pip install -e .
 
 # CI local
 cd apps/backend && npm run build
-cd apps/frontend/temp-frontend && npm run build
+cd apps/marketplace && npm run build
 ```
 
 Pull requests sunt binevenite. Deschide un issue înainte de schimbări majore.
