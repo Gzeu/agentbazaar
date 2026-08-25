@@ -17,17 +17,17 @@ import { servicesApi, auth as apiAuth } from "@/lib/api";
 
 interface WalletState {
   address: string | null;
-  balance: string; // formatted EGLD, e.g. "1.23"
+  balance: string;
   connected: boolean;
   connecting: boolean;
-    showModal: boolean;
+  showModal: boolean;
   token: string | null;
   connect: () => void;
   openModal: () => void;
   closeModal: () => void;
   disconnect: () => void;
   shortAddress: string;
-  network: string; // e.g. "devnet"
+  network: string;
 }
 
 const WalletContext = createContext<WalletState>({
@@ -35,7 +35,7 @@ const WalletContext = createContext<WalletState>({
   balance: "0",
   connected: false,
   connecting: false,
-    showModal: false,
+  showModal: false,
   token: null,
   connect: () => {},
   openModal: () => {},
@@ -102,7 +102,7 @@ export function WalletProvider({ children }: { children: ReactNode }) {
         const syncFromStore = () => {
           const state = store.getState();
           const acct = state?.account?.account;
-          const net  = state?.networkConfig?.network;
+          const net = state?.networkConfig?.network;
           if (acct?.address) {
             setAddress(acct.address);
             setBalance(formatBalance(acct.balance ?? "0"));
@@ -122,12 +122,28 @@ export function WalletProvider({ children }: { children: ReactNode }) {
     })();
 
     return () => cleanup?.();
-  }, []);
+  }, [setAddress, setBalance, setNetwork]);
 
-  const openModal  = useCallback(() => setShowModal(true),  []);
+  // Dev / degraded-mode fallback: ConnectModal emits `dev-address`
+  // to simulate a wallet connect without an installed provider.
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const handler = () => {
+      const dev = window.localStorage.getItem("ab:devAddress");
+      if (dev) {
+        setAddress(dev);
+        setBalance("99999");
+        setNetwork("testnet");
+      }
+    };
+    window.addEventListener("dev-address", handler);
+    return () => window.removeEventListener("dev-address", handler);
+  }, [setAddress, setBalance, setNetwork]);
+
+  const openModal = useCallback(() => setShowModal(true), []);
   const closeModal = useCallback(() => setShowModal(false), []);
-  /** Connect opens the wallet modal (xPortal / extension / WebWallet). */
-  const connect    = useCallback(() => setShowModal(true),  []);
+  /** Connect opens the wallet modal (extension / WebWallet). */
+  const connect = useCallback(() => setShowModal(true), []);
 
   const disconnect = useCallback(async () => {
     try {
