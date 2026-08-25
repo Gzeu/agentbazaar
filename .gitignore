@@ -33,3 +33,7 @@ devnet/reputation-deploy.json
 .vscode/settings.json
 *.swp
 *.swo
+.next/
+next-env.d.ts
+*.tsbuildinfo
+.vercel/

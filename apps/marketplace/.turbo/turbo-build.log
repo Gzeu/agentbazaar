@@ -1,0 +1,51 @@
+
+> @agentbazaar/marketplace@0.1.0 build
+> next build
+
+ ⚠ The config property `experimental.turbo` is deprecated. Move this setting to `config.turbopack` as Turbopack is now stable.
+   ▲ Next.js 15.3.0
+
+   Creating an optimized production build ...
+ ⚠ Compiled with warnings in 3.0s
+
+../../node_modules/pino/lib/tools.js
+Module not found: Can't resolve 'pino-pretty' in '/home/i5/agentbazaar/node_modules/pino/lib'
+
+Import trace for requested module:
+../../node_modules/pino/lib/tools.js
+../../node_modules/pino/pino.js
+../../node_modules/@walletconnect/logger/dist/index.es.js
+../../node_modules/@walletconnect/sign-client/dist/index.es.js
+../../node_modules/@multiversx/sdk-wallet-connect-provider/out/walletConnectV2Provider.js
+../../node_modules/@multiversx/sdk-wallet-connect-provider/out/index.js
+./src/components/ConnectModal.tsx
+./src/components/Navbar.tsx
+
+   Linting and checking validity of types ...
+   Collecting page data ...
+   Generating static pages (0/9) ...
+   Generating static pages (2/9) 
+   Generating static pages (4/9) 
+   Generating static pages (6/9) 
+ ✓ Generating static pages (9/9)
+   Finalizing page optimization ...
+   Collecting build traces ...
+
+Route (app)                                 Size  First Load JS
+┌ ○ /                                      174 B         105 kB
+├ ○ /_not-found                            985 B         103 kB
+├ ○ /consumer                            2.58 kB         104 kB
+├ ○ /events                              2.29 kB         104 kB
+├ ○ /leaderboard                         1.33 kB         103 kB
+├ ○ /marketplace                         2.61 kB         120 kB
+├ ƒ /marketplace/[id]                    3.82 kB         121 kB
+└ ○ /provider                            2.62 kB         104 kB
++ First Load JS shared by all             102 kB
+  ├ chunks/4bd1b696-3b11fc0ecce9bea5.js  53.2 kB
+  ├ chunks/684-8b0ccc480559dae1.js       46.3 kB
+  └ other shared chunks (total)          2.25 kB
+
+
+○  (Static)   prerendered as static content
+ƒ  (Dynamic)  server-rendered on demand
+
