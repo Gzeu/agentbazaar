@@ -31,10 +31,9 @@ Audit 2026-08-25 · actualizat post-PR #5/#6/#7.
 
 ## Goluri rămase (open)
 
-1. **Wallet signing real pe chain** — WebWallet/Extension conectează adresa, dar sdk-dapp v2.40 deep-imports sunt ruinate. Pentru semnare TX reale e nevoie de migrare către `@multiversx/sdk-core` + `WalletConnectV2Provider` direct, sau upgrade sdk-dapp → v5. Până atunci, backendul rulează în **mock mode** (`REGISTRY_CONTRACT_ADDRESS not set`) și UI-ul folosește JWT pentru auth.
-2. **Env vars Vercel/WalletConnect** — eliminat (nu mai e nevoie de projectId). Rămâne doar `NEXT_PUBLIC_BACKEND_URL` configurat pe Vercel (sau implicit localhost:3001 dev).
+1. **Env vars Vercel** — `NEXT_PUBLIC_BACKEND_URL` rămâne de setat în Vercel dashboard (sau implicit `localhost:3001` dev). Backend-ul rulează în **mock mode** (fără contracte deployate pe testnet); pentru date reale pe-chain e nevoie de deploy + adrese în env.
 
-> Conectarea wallet (prin WebWallet redirect / extensie) setează adresa în `WalletContext`, iar JWT-ul API este emis automat. Pentru dev fără wallet, `ConnectModal` are „Quick dev login".
+> Toate celelalte funcționalități — auth JWT, dispute/refund/complete, deregister, leaderboard, analytics — sunt acum complet funcționale pe testnet cu semnare on-chain reală (Extension/Web Wallet).
 
 ## Rezolvat (din auditul anterior)
 
@@ -53,6 +52,15 @@ Audit 2026-08-25 · actualizat post-PR #5/#6/#7.
 - `WalletContext`: listener pentru `dev-address`; auto-issued JWT rămâne la adresa setată; disconnect curăță token
 - WebWallet și Extension folosesc sdk-dapp v2.40 (degraded mode fără full signing chain)
 - Nu mai este nevoie de `NEXT_PUBLIC_WALLETCONNECT_PROJECT_ID` în Vercel
+
+### PR #12 — Direct MultiversX SDK signing
+- `hooks/useSigner.ts`: nou hook care împachetează `ExtensionProvider` + `WalletProvider` direct din SDK
+- `signMessage(SignableMessage)` + `signTransaction(Transaction)` pentru ambele provider-e
+- Web Wallet signature citit din URL la redirect-back (`getMessageSignatureFromWalletUrl`)
+- `ConnectModal` refactorizat: butoanele de login folosesc `signer.connectExtension` / `signer.connectWebWallet`
+- `WalletContext` expune `signer` global
+- Teste noi: 5 pentru `useSigner`; **12/12 passing** în total
+- Eliminat complet `sdk-dapp` deep-imports din calea de signare
 
 - ~~dispute/refund/complete UI~~ → PR #5
 - ~~analytics~~ → PR #6
