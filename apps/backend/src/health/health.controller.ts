@@ -1,6 +1,7 @@
 import { Controller, Get } from '@nestjs/common';
 import { ApiTags, ApiOperation } from '@nestjs/swagger';
 import { MultiversxService } from '../multiversx/multiversx.service';
+import { Public } from '../auth/jwt.guard';
 
 @ApiTags('health')
 @Controller('health')
@@ -8,6 +9,7 @@ export class HealthController {
   constructor(private readonly mvx: MultiversxService) {}
 
   @Get()
+  @Public()
   @ApiOperation({ summary: 'Service liveness + chain connectivity check' })
   async health() {
     const network = await this.mvx.getNetworkStatus();

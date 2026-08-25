@@ -42,8 +42,9 @@ describe("servicesApi", () => {
       captured = init;
       return jsonRes(fake);
     });
-    const res = await servicesApi.register({
+      const res = await servicesApi.register({
       name: "Oracle", category: "data", providerAddress: "erd1x", endpoint: "https://e",
+      priceAmount: "0.01",
     });
     expect(res).toEqual(fake);
     expect(JSON.parse(String(captured?.body))).toMatchObject({ name: "Oracle" });
