@@ -80,3 +80,60 @@ export const tasksApi = {
     });
   },
 };
+
+// ── Analytics ────────────────────────────────────────────────────────────────
+export interface DashboardSnapshot {
+  timestamp: string;
+  tasks: {
+    total: number; completed: number; failed: number;
+    running: number; pending: number; disputed: number;
+    completionRate: number; avgLatencyMs: number;
+  };
+  tvl: { wei: string; egld: string };
+  services: { total: number; active: number };
+}
+
+export interface CategoryBreakdown {
+  categories: Record<string, { services: number; tasks: number }>;
+  timestamp: string;
+}
+
+export interface VolumePoint {
+  date: string; tasks: number; completed: number; volumeEgld: number;
+}
+
+export const analyticsApi = {
+  dashboard() {
+    return request<DashboardSnapshot>(`/analytics`);
+  },
+  categories() {
+    return request<CategoryBreakdown>(`/analytics/categories`);
+  },
+  volume(days = 7) {
+    return request<{ days: number; series: VolumePoint[] }>(
+      `/analytics/volume?days=${days}`,
+    );
+  },
+};
+
+// ── Services (provider side) ─────────────────────────────────────────────────
+export interface RegisterServicePayload {
+  name: string;
+  category: string;
+  description?: string;
+  providerAddress: string;
+  endpoint: string;
+  pricingModel?: string;
+  priceAmount: string;
+  maxLatencyMs?: number;
+  tags?: string[];
+}
+
+export const servicesApi = {
+  register(payload: RegisterServicePayload) {
+    return request<{ id: string }>(`/services`, {
+      method: "POST",
+      body: JSON.stringify(payload),
+    });
+  },
+};
