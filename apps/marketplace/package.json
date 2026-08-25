@@ -9,19 +9,20 @@
     "lint": "next lint"
   },
   "dependencies": {
-    "next": "15.3.0",
-    "react": "^19.0.0",
-    "react-dom": "^19.0.0",
+    "@agentbazaar/sdk": "*",
+    "@agentbazaar/shared": "*",
     "@multiversx/sdk-core": "^13.16.0",
     "@multiversx/sdk-dapp": "~2.40.11",
-    "@agentbazaar/sdk": "*",
-    "@agentbazaar/shared": "*"
+    "next": "15.3.0",
+    "protobufjs": "^8.7.2",
+    "react": "^19.0.0",
+    "react-dom": "^19.0.0"
   },
   "devDependencies": {
-    "typescript": "^5.6.3",
+    "@tailwindcss/forms": "^0.5.9",
     "@types/react": "^19.0.0",
     "@types/react-dom": "^19.0.0",
     "tailwindcss": "^4.0.0",
-    "@tailwindcss/forms": "^0.5.9"
+    "typescript": "^5.6.3"
   }
 }
