@@ -13,8 +13,11 @@
     "incremental": true,
     "skipLibCheck": true,
     "strict": true,
+    "strictPropertyInitialization": false,
     "forceConsistentCasingInFileNames": true,
     "noFallthroughCasesInSwitch": true,
-    "noEmitOnError": true
-  }
+    "noEmitOnError": true,
+    "types": ["node", "jest"]
+  },
+  "exclude": ["node_modules", "dist", "**/*.spec.ts"]
 }

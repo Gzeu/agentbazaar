@@ -1,7 +1,7 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { ServicesService } from '../services/services.service';
 
-interface DiscoveryQuery {
+export interface DiscoveryQuery {
   category?:     string;
   maxLatencyMs?: number;
   minScore?:     number;

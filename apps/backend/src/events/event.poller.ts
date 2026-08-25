@@ -2,7 +2,7 @@ import { Injectable, Logger, OnModuleDestroy } from '@nestjs/common';
 import { Cron, CronExpression } from '@nestjs/schedule';
 import { EventEmitter2 } from '@nestjs/event-emitter';
 import { MultiversxService } from '../multiversx/multiversx.service';
-import { ChainEvent } from './events.gateway';
+import { ChainEvent } from './chain-event';
 import { v4 as uuidv4 } from 'uuid';
 
 const EVENT_IDENTIFIERS: Record<string, string> = {
@@ -45,7 +45,7 @@ export class EventPoller implements OnModuleDestroy {
     this.running = false;
   }
 
-  @Cron(CronExpression.EVERY_2_SECONDS)
+  @Cron(CronExpression.EVERY_5_SECONDS)
   async poll(): Promise<void> {
     if (!this.running) return;
     const contracts = [

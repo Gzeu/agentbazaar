@@ -13,7 +13,7 @@
     "react": "^19.0.0",
     "react-dom": "^19.0.0",
     "@multiversx/sdk-core": "^13.16.0",
-    "@multiversx/sdk-dapp": "^2.42.0",
+    "@multiversx/sdk-dapp": "~2.40.11",
     "@agentbazaar/sdk": "*",
     "@agentbazaar/shared": "*"
   },
